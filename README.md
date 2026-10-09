@@ -98,11 +98,8 @@ Keep the iframe opacity at 0 until the iframe fires an onLoad event, then transi
 
 But it should be called bujuu   and the colors should be black and white or grey
 
-This project was built with [Lovable](https://lovable.dev).
 
-**Live app**: https://bujuu.lovable.app
 
-## Build with Lovable
 
 Continue developing this project in the [Lovable editor](https://lovable.dev/projects/148340a5-ec3c-4701-9a93-af8bcf024d2f).
 
