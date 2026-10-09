@@ -40,11 +40,15 @@ function Index() {
   const topTen = useQuery(topTenQuery());
   const action = useQuery(popularActionQuery());
 
-  const hero = trending.data?.[0];
+  const heroItems = trending.data?.slice(0, 5);
 
   return (
     <AppShell>
-      <HeroBanner item={hero} />
+      <HeroBanner
+        items={heroItems}
+        item={heroItems?.[0]}
+        onSelect={setSelected}
+      />
 
       <div className="-mt-10 relative z-10">
         <MediaRow

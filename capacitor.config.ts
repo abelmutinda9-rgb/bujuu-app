@@ -3,15 +3,14 @@ import type { CapacitorConfig } from "@capacitor/cli";
 const config: CapacitorConfig = {
   appId: "app.bujuu.tv",
   appName: "BUJUU",
-  webDir: "native-web",
+  webDir: "dist/client",
   backgroundColor: "#000000",
   server: {
-    url: "https://lynnn.lovable.app",
     androidScheme: "https",
+    hostname: "localhost",
     cleartext: false,
     allowNavigation: [
-      "lynnn.lovable.app",
-      "*.lovable.app",
+      "*.lovable.cloud",
       "*.supabase.co",
       "accounts.google.com",
       "*.google.com",

@@ -20,7 +20,6 @@ import { Toaster } from "../components/ui/sonner";
 import { Splash } from "../components/Splash";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
-
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -149,6 +148,7 @@ function RootComponent() {
           return;
         }
 
+        // Handle PKCE auth code
         if (code) {
           const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeErr) {
@@ -170,6 +170,30 @@ function RootComponent() {
           queryClient.invalidateQueries();
           toast.success("Signed in successfully!");
           void router.navigate({ to: target, replace: true });
+          return;
+        }
+
+        // Handle implicit token in URL hash
+        if (urlObj.hash) {
+          const hashString = urlObj.hash.startsWith("#") ? urlObj.hash.substring(1) : urlObj.hash;
+          const hashParams = new URLSearchParams(hashString);
+          const accessToken = hashParams.get("access_token");
+          const refreshToken = hashParams.get("refresh_token");
+
+          if (accessToken && refreshToken) {
+            const { error: sessionErr } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (sessionErr) {
+              toast.error(sessionErr.message || "Failed to establish session");
+              return;
+            }
+
+            queryClient.invalidateQueries();
+            toast.success("Signed in successfully!");
+            void router.navigate({ to: "/", replace: true });
+          }
         }
       } catch (err: unknown) {
         console.error("Deep link processing error:", err);
@@ -191,7 +215,6 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
       <Splash />
       <Toaster />
