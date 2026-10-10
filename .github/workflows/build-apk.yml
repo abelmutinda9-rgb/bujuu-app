@@ -44,6 +44,11 @@ jobs:
         run: bun install
 
       - name: Build Web Assets
+        env:
+          VITE_TMDB_API_KEY: "a0f3ec7ad97db59c00931e7a88a827da"
+          VITE_SUPABASE_URL: "https://uutspemcwnizcvnmzzah.supabase.co"
+          VITE_SUPABASE_PROJECT_ID: "uutspemcwnizcvnmzzah"
+          VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_xk6aq99MweDuvwEg4zbD2A_epHChYwA"
         run: |
           bun run build
           mkdir -p dist/client

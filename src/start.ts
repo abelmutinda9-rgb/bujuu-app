@@ -25,7 +25,7 @@ const csrfMiddleware = createCsrfMiddleware({
 
 const REMOTE_BACKEND_BASE =
   (typeof process !== "undefined" && process.env?.VITE_BACKEND_URL) ||
-  "https://c--5d3d5458-27cc-435a-851a-efc5f61a5689-prod.lovable.cloud";
+  "https://lynnn.lovable.app";
 
 export const startInstance = createStart(() => ({
   functionMiddleware: [attachSupabaseAuth],

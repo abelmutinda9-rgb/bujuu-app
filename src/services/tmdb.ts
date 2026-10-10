@@ -34,7 +34,28 @@ export function backdropUrl(path: string | null, size: "w780" | "w1280" | "origi
 }
 
 
+const TMDB_API_KEY =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_TMDB_API_KEY) ||
+  "a0f3ec7ad97db59c00931e7a88a827da";
+
+const TMDB_BASE_URL = "https://api.themoviedb.org/3";
+
 async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  try {
+    const url = new URL("https://api.themoviedb.org/3" + path);
+    url.searchParams.set("api_key", TMDB_API_KEY);
+    url.searchParams.set("language", params["language"] ?? "en-US");
+    for (const [k, v] of Object.entries(params)) {
+      if (k !== "language") url.searchParams.set(k, v);
+    }
+    const res = await fetch(url.toString());
+    if (res.ok) {
+      return (await res.json()) as T;
+    }
+  } catch (err) {
+    console.warn("Direct TMDB fetch failed, falling back to server function:", err);
+  }
+
   return (await tmdbQuery({ data: { path, params } })) as T;
 }
 
