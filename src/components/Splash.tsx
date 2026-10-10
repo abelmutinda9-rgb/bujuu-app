@@ -1,13 +1,13 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
+import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import logo from "@/assets/bujuu-logo.png.asset.json";
 import { supabase } from "@/integrations/supabase/client";
 
 const KEY = "bujuu.splashed";
 const OPEN_PATHS = ["/auth", "/reset-password", "/r/"];
 
-/** Shown once per app launch: black screen + logo while the session is checked. */
+/** Shown once per app launch: obsidian background + animated BUJUU branding + tagline while session is checked. */
 export function Splash() {
   const [phase, setPhase] = useState<"hidden" | "show" | "leaving">("hidden");
   const navigate = useNavigate();
@@ -34,13 +34,12 @@ export function Splash() {
         }
       })
       .finally(() => {
-        const wait = Math.max(0, 900 - (Date.now() - started));
+        const wait = Math.max(0, 1100 - (Date.now() - started));
         setTimeout(() => {
           setPhase("leaving");
           setTimeout(() => setPhase("hidden"), 350);
         }, wait);
       });
-    // launch-only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -48,15 +47,23 @@ export function Splash() {
   return (
     <div
       aria-hidden
-      className={`fixed inset-0 z-[100] grid place-items-center bg-ink transition-opacity duration-300 ${
+      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#0B0B0F] transition-opacity duration-300 ${
         phase === "leaving" ? "opacity-0" : "opacity-100"
       }`}
     >
-      <img
-        src={logo.url}
-        alt="BUJUU"
-        className="h-auto w-[42vw] max-w-[640px] min-w-[150px] animate-in fade-in duration-500 sm:w-[30vw] lg:w-[24vw]"
-      />
+      <div className="flex flex-col items-center gap-4 animate-in fade-in zoom-in-95 duration-500">
+        <div className="grid h-20 w-20 sm:h-24 sm:w-24 place-items-center rounded-2xl bg-gradient-to-br from-red-600 via-rose-600 to-rose-900 shadow-2xl shadow-rose-600/40">
+          <Play className="h-10 w-10 sm:h-12 sm:w-12 fill-current text-white translate-x-0.5" />
+        </div>
+        <div className="text-center">
+          <h1 className="text-2xl sm:text-3xl font-extrabold uppercase tracking-[0.25em] text-white">
+            BUJUU
+          </h1>
+          <p className="mt-1 text-xs sm:text-sm font-medium tracking-wider text-zinc-400">
+            Stream. Watch. Enjoy.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
