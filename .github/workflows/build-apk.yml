@@ -23,6 +23,12 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
+      - name: Print Android Keystore Fingerprints
+        run: |
+          echo "==================== ANDROID DEBUG KEYSTORE FINGERPRINTS ===================="
+          keytool -list -v -keystore android/app/debug.keystore -alias androiddebugkey -storepass android | grep -E "(SHA1|SHA256):"
+          echo "=============================================================================="
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
