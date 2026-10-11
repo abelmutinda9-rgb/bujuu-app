@@ -48,11 +48,22 @@ export function GoogleButton() {
           void navigate({ to: target });
         }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
+        let msg = "Google Sign-In failed.";
+        if (err instanceof Error) {
+          msg = err.message;
+        } else if (typeof err === "object" && err !== null) {
+          const anyErr = err as Record<string, unknown>;
+          msg = (anyErr.message as string) || (anyErr.error as string) || JSON.stringify(err);
+        } else if (typeof err === "string") {
+          msg = err;
+        }
+
         if (msg.includes("canceled") || msg.includes("12501")) {
           // User canceled the sign-in prompt
+        } else if (msg.includes("10:") || msg.includes("DEVELOPER_ERROR") || msg.includes("10")) {
+          toast.error("Google Error 10: Web Client ID or SHA-1 mismatch in Google Cloud Console.", { duration: 8000 });
         } else {
-          toast.error(msg || "Google Sign-In failed.");
+          toast.error(msg);
         }
       } finally {
         setBusy(false);
