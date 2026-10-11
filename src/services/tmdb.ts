@@ -56,7 +56,12 @@ async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): 
     console.warn("Direct TMDB fetch failed, falling back to server function:", err);
   }
 
-  return (await tmdbQuery({ data: { path, params } })) as T;
+  try {
+    return (await tmdbQuery({ data: { path, params } })) as T;
+  } catch (err) {
+    console.warn("tmdbQuery fallback failed:", err);
+    return { results: [], page: 1, total_pages: 1 } as unknown as T;
+  }
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

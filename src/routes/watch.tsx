@@ -4,11 +4,8 @@ import { ArrowLeft, ListVideo, Loader2, SkipForward, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
-import { useAccount } from "@/hooks/use-account";
-import { getStream } from "@/lib/account.functions";
-import { PROVIDERS, SERVER_COUNT } from "@/services/embeds";
+import { embedUrl, PROVIDERS, SERVER_COUNT } from "@/services/embeds";
 import { detailsQuery, seasonQuery, stillUrl } from "@/services/tmdb";
-
 
 const searchSchema = z.object({
   tmdbId: z.coerce.number(),
@@ -41,34 +38,17 @@ function Watch() {
   const [showEpisodes, setShowEpisodes] = useState(false);
   const isTv = mediaType === "tv";
 
+  // Directly generate stream embed URL so movie/show plays immediately without server bottleneck
+  const src = embedUrl({ tmdbId, mediaType, season, episode }, server);
 
-  // The stream address is issued by the server only for an active account on its authorized device.
-  const { creds, signedIn, loading: accountLoading, state } = useAccount();
-  const playback = useQuery({
-    queryKey: ["playback", creds?.deviceId, tmdbId, mediaType, season, episode, server],
-    enabled: Boolean(creds && signedIn),
-    staleTime: 0,
-    gcTime: 0,
-    retry: false,
-    queryFn: () => getStream({ data: { ...creds!, tmdbId, mediaType, season, episode, server } }),
-  });
-  // Re-checked every 30 s: if this device has been replaced, the player is removed at once.
-  const revoked = state !== null && state.isPremium === false;
-  const src = playback.data?.allowed && !revoked ? playback.data.src : null;
-  const denied =
-    !accountLoading && (!signedIn || playback.data?.allowed === false || (playback.isSuccess && revoked));
-
-  useEffect(() => {
-    if (!denied) return;
-    void navigate({
-      to: "/subscribe",
-      search: { redirect: `/watch?tmdbId=${tmdbId}&mediaType=${mediaType}` },
-    });
-  }, [denied, navigate, tmdbId, mediaType]);
-
-  // Reset loading state whenever the source changes.
+  // Reset loading state and set safety reveal timeout whenever the source changes
   useEffect(() => {
     setLoaded(false);
+    // Reveal player within 3.5 seconds even if cross-origin iframe does not trigger onLoad
+    const timer = window.setTimeout(() => {
+      setLoaded(true);
+    }, 3500);
+    return () => window.clearTimeout(timer);
   }, [src]);
 
   // Silent fallback: if a server does not come up in time, move to the next one.
@@ -82,7 +62,7 @@ function Watch() {
     return () => window.clearTimeout(t);
   }, [src, loaded]);
 
-  // Try the next server whenever the current one changes title/media.
+  // Reset server index whenever media title/season/episode changes
   useEffect(() => {
     setServer(0);
   }, [tmdbId, mediaType, season, episode]);
@@ -119,25 +99,25 @@ function Watch() {
   return (
     <div className="fixed inset-0 z-50 m-0 h-screen w-screen overflow-hidden bg-black p-0">
       {src && (
-      <iframe
-        key={src}
-        src={src}
-        title="bujuu player"
-        allow="autoplay; fullscreen; encrypted-media; picture-in-picture; screen-wake-lock"
-        allowFullScreen
-        onLoad={() => setLoaded(true)}
-        onError={() => setServer((s) => (s < SERVER_COUNT - 1 ? s + 1 : s))}
-        className={`absolute inset-0 h-full w-full border-0 transition-opacity duration-500 ${
-          loaded ? "opacity-100" : "opacity-0"
-        }`}
-      />
+        <iframe
+          key={src}
+          src={src}
+          title="bujuu player"
+          allow="autoplay; fullscreen; encrypted-media; picture-in-picture; screen-wake-lock"
+          allowFullScreen
+          onLoad={() => setLoaded(true)}
+          onError={() => setServer((s) => (s < SERVER_COUNT - 1 ? s + 1 : s))}
+          className={`absolute inset-0 h-full w-full border-0 transition-opacity duration-500 ${
+            loaded ? "opacity-100" : "opacity-0"
+          }`}
+        />
       )}
 
       {!loaded && (
         <div className="absolute inset-0 grid place-items-center bg-black">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-10 w-10 animate-spin text-brand" />
-            <p className="text-sm text-muted-foreground">Connecting secure stream...</p>
+            <p className="text-sm text-muted-foreground">Connecting stream...</p>
           </div>
         </div>
       )}
@@ -153,8 +133,6 @@ function Watch() {
       </button>
 
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
-
-
         {isTv && (
           <>
             <button
@@ -263,8 +241,6 @@ function Watch() {
           </div>
         </div>
       )}
-
     </div>
-
   );
 }

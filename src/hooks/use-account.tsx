@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useDevice } from "@/hooks/use-access";
 import { supabase } from "@/integrations/supabase/client";
 import { applyReferral, myStatus, syncAccount } from "@/lib/account.functions";
+import type { AccountState } from "@/lib/account.server";
 
 const REF_KEY = "bujuu.ref";
 
@@ -21,7 +22,27 @@ export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession(s);
+      if (s?.user) {
+        // Ensure user profile row exists in Supabase
+        const displayName =
+          s.user.user_metadata?.full_name ||
+          s.user.user_metadata?.name ||
+          s.user.email?.split("@")[0] ||
+          null;
+        void supabase.from("profiles").upsert(
+          {
+            id: s.user.id,
+            email: s.user.email,
+            display_name: displayName,
+            provider: "google",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+      }
+    });
     void supabase.auth.getSession().then(({ data: d }) => {
       setSession(d.session);
       setReady(true);
@@ -31,9 +52,74 @@ export function useSession() {
   return { session, ready };
 }
 
+/** Direct Supabase client query for subscriber and subscription status */
+async function fetchClientAccountState(userId: string): Promise<AccountState> {
+  try {
+    const { data: subscriber } = await supabase
+      .from("subscribers")
+      .select("id, phone")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (!subscriber) {
+      return {
+        status: "NO_SUBSCRIPTION",
+        isPremium: false,
+        phone: null,
+        expiresAt: null,
+        autoRenew: false,
+        deviceAuthorized: true,
+        subscriberId: null,
+      };
+    }
+
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("expires_at, status, auto_renew")
+      .eq("subscriber_id", subscriber.id)
+      .order("expires_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!sub) {
+      return {
+        status: "NO_SUBSCRIPTION",
+        isPremium: false,
+        phone: subscriber.phone,
+        expiresAt: null,
+        autoRenew: false,
+        deviceAuthorized: true,
+        subscriberId: subscriber.id,
+      };
+    }
+
+    const live = sub.status === "active" && new Date(sub.expires_at).getTime() > Date.now();
+    return {
+      status: live ? "ACTIVE" : "EXPIRED",
+      isPremium: live,
+      phone: subscriber.phone,
+      expiresAt: sub.expires_at,
+      autoRenew: sub.auto_renew === true,
+      deviceAuthorized: true,
+      subscriberId: subscriber.id,
+    };
+  } catch (err) {
+    console.warn("Client fallback accountState failed:", err);
+    return {
+      status: "NO_SUBSCRIPTION",
+      isPremium: false,
+      phone: null,
+      expiresAt: null,
+      autoRenew: false,
+      deviceAuthorized: true,
+      subscriberId: null,
+    };
+  }
+}
+
 /**
- * Account + subscription + device state. Everything is decided on the server;
- * this only shows it. Re-checked every 30 seconds so a replaced device locks.
+ * Account + subscription + device state. Works seamlessly even when remote
+ * server functions are offline or during static client-side APK execution.
  */
 export function useAccount() {
   const { session, ready: sessionReady } = useSession();
@@ -44,39 +130,53 @@ export function useAccount() {
   const sync = useQuery({
     queryKey: ["account-sync", userId, creds?.deviceId],
     enabled: Boolean(userId && creds),
-    staleTime: Infinity,
-    retry: 1,
+    staleTime: 60_000,
+    retry: false,
     queryFn: async () => {
       const platform = navigator.userAgent.slice(0, 120);
-      const state = await syncAccount({ data: { ...creds!, platform } });
       try {
-        const code = localStorage.getItem(REF_KEY);
-        if (code) {
-          await applyReferral({ data: { code } }).catch(() => undefined);
-          localStorage.removeItem(REF_KEY);
+        const state = await syncAccount({ data: { ...creds!, platform } });
+        try {
+          const code = localStorage.getItem(REF_KEY);
+          if (code) {
+            await applyReferral({ data: { code } }).catch(() => undefined);
+            localStorage.removeItem(REF_KEY);
+          }
+        } catch {
+          /* ignore */
         }
-      } catch {
-        /* ignore */
+        return state;
+      } catch (err) {
+        console.warn("syncAccount remote function failed; using direct Supabase fallback:", err);
+        return await fetchClientAccountState(userId!);
       }
-      return state;
     },
   });
 
   const status = useQuery({
     queryKey: ["account-status", userId, creds?.deviceId],
-    enabled: Boolean(userId && creds && sync.isSuccess),
-    staleTime: 15_000,
-    refetchInterval: 30_000,
+    enabled: Boolean(userId && creds && (sync.isSuccess || sync.data != null)),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
     refetchOnWindowFocus: true,
-    queryFn: () => myStatus({ data: { ...creds! } }),
+    queryFn: async () => {
+      try {
+        return await myStatus({ data: { ...creds! } });
+      } catch {
+        return await fetchClientAccountState(userId!);
+      }
+    },
   });
 
   const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["account-sync"] });
     void queryClient.invalidateQueries({ queryKey: ["account-status"] });
   }, [queryClient]);
 
   const state = status.data ?? sync.data ?? null;
   const hasSub = state ? state.status === "ACTIVE" || state.status === "DEVICE_NOT_AUTHORIZED" : false;
+
+  const loading = !sessionReady || !deviceReady || (Boolean(session) && !state && !sync.isError && sync.isLoading);
 
   return {
     session,
@@ -86,7 +186,7 @@ export function useAccount() {
     state,
     isPremium: state?.isPremium === true,
     needsTransfer: Boolean(state && !state.deviceAuthorized && hasSub),
-    loading: !sessionReady || !deviceReady || (Boolean(session) && !state && !sync.isError),
+    loading,
     error: sync.error ?? null,
     refresh,
   };

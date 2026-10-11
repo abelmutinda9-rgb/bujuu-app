@@ -1,36 +1,67 @@
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { Bell } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
-import { listNotifications, markNotificationsRead } from "@/lib/notifications.functions";
+
+interface NotificationItem {
+  id: string;
+  kind?: string;
+  title: string;
+  body?: string | null;
+  read_at?: string | null;
+  created_at: string;
+}
 
 export function NotificationBell() {
   const [signedIn, setSignedIn] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const qc = useQueryClient();
-  const list = useServerFn(listNotifications);
-  const markRead = useServerFn(markNotificationsRead);
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => setSignedIn(Boolean(data.session)));
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSignedIn(Boolean(s)));
+    void supabase.auth.getSession().then(({ data }) => {
+      setSignedIn(Boolean(data.session));
+      setUserId(data.session?.user.id ?? null);
+    });
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSignedIn(Boolean(s));
+      setUserId(s?.user.id ?? null);
+    });
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const q = useQuery({
-    queryKey: ["notifications"],
-    queryFn: () => list(),
-    enabled: signedIn,
+  const q = useQuery<NotificationItem[]>({
+    queryKey: ["notifications", userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("id, kind, title, body, read_at, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if (error) return [];
+      return (data as NotificationItem[]) ?? [];
+    },
+    enabled: signedIn && Boolean(userId),
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
   });
+
   const read = useMutation({
-    mutationFn: () => markRead(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+    mutationFn: async () => {
+      if (!userId) return;
+      await supabase
+        .from("notifications")
+        .update({ read_at: new Date().toISOString() })
+        .eq("user_id", userId)
+        .is("read_at", null);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications", userId] }),
   });
+
   const items = q.data ?? [];
   const unread = items.filter((n) => !n.read_at).length;
 

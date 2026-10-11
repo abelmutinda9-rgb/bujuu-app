@@ -29,7 +29,13 @@ public class AdBlockEngine {
             "google.com",
             "accounts.google.com",
             "googleusercontent.com",
-            "gstatic.com"
+            "gstatic.com",
+            "vidfast.pro",
+            "vidy.st",
+            "vidrock.net",
+            "vidvault.ru",
+            "vidsrc.mov",
+            "vidzee.wtf"
     ));
 
     // Fallback domain blacklist if native library is pending or running in basic emulator

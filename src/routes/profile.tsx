@@ -166,7 +166,7 @@ function InviteFriends() {
       <p className="mt-2 text-sm text-muted-foreground">
         Earn KSh {q.data?.reward ?? 30} for every friend who subscribes through your link.
       </p>
-      <p className="mt-3 break-all rounded-md bg-secondary px-3 py-2 text-xs">{link || "Loading…"}</p>
+      <p className="mt-3 break-all rounded-md bg-secondary px-3 py-2 text-xs">{q.isLoading ? "Loading…" : link ? link : "Invite code available online."}</p>
       <Button className="mt-3 w-full" variant="secondary" disabled={!link} onClick={share}>
         Share link
       </Button>
