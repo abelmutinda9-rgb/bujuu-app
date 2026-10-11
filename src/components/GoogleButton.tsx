@@ -23,7 +23,11 @@ export function GoogleButton() {
 
     if (Capacitor.isNativePlatform()) {
       try {
-        await GoogleAuth.initialize();
+        await GoogleAuth.initialize({
+          clientId: "857102692656-bqtjjvt1bg70snohfadspgcpdim24v82.apps.googleusercontent.com",
+          scopes: ["profile", "email"],
+          grantOfflineAccess: true,
+        });
         const googleUser = await GoogleAuth.signIn();
 
         const idToken = googleUser?.authentication?.idToken;
