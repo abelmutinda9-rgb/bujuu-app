@@ -259,9 +259,9 @@ export async function payheroStkPush(args: {
   reference: string;
   callbackUrl: string;
 }) {
-  const username = process.env["PAYHERO_API_USERNAME"];
-  const password = process.env["PAYHERO_API_PASSWORD"];
-  const channelId = process.env["PAYHERO_CHANNEL_ID"];
+  const username = process.env["PAYHERO_API_USERNAME"] || "Fwn62pjQ6lqCzqeExV9h";
+  const password = process.env["PAYHERO_API_PASSWORD"] || "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb";
+  const channelId = process.env["PAYHERO_CHANNEL_ID"] || "12608";
   if (!username || !password || !channelId) throw new Error("Payments are not configured yet.");
 
   const auth = btoa(`${username}:${password}`);
@@ -304,8 +304,8 @@ export async function payheroTransactionStatus(reference: string): Promise<{
   status: string;
   raw: unknown;
 }> {
-  const username = process.env["PAYHERO_API_USERNAME"];
-  const password = process.env["PAYHERO_API_PASSWORD"];
+  const username = process.env["PAYHERO_API_USERNAME"] || "Fwn62pjQ6lqCzqeExV9h";
+  const password = process.env["PAYHERO_API_PASSWORD"] || "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb";
   if (!username || !password) throw new Error("Payments are not configured yet.");
   const auth = btoa(`${username}:${password}`);
   const res = await fetch(

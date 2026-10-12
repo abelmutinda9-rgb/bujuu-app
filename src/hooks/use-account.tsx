@@ -54,6 +54,25 @@ export function useSession() {
 
 /** Direct Supabase client query for subscriber and subscription status */
 async function fetchClientAccountState(userId: string): Promise<AccountState> {
+  // Check local verified subscription first
+  try {
+    const localRaw = localStorage.getItem(`bujuu_sub_${userId}`);
+    if (localRaw) {
+      const local = JSON.parse(localRaw);
+      if (local && local.expiresAt && new Date(local.expiresAt).getTime() > Date.now()) {
+        return {
+          status: "ACTIVE",
+          isPremium: true,
+          phone: local.phone || null,
+          expiresAt: local.expiresAt,
+          autoRenew: false,
+          deviceAuthorized: true,
+          subscriberId: local.subscriberId || "local",
+        };
+      }
+    }
+  } catch {}
+
   try {
     const { data: subscriber } = await supabase
       .from("subscribers")

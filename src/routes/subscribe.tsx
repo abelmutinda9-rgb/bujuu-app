@@ -8,10 +8,11 @@ import { z } from "zod";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAccount } from "@/hooks/use-account";
+import { useAccount, useSession } from "@/hooks/use-account";
 import { supabase } from "@/integrations/supabase/client";
 import { GoogleButton } from "@/components/GoogleButton";
-import { mySubscriptionPayment, startSubscription, transferDevice } from "@/lib/account.functions";
+import { transferDevice } from "@/lib/account.functions";
+import { checkPaymentStatus, normalizeKenyanPhone, requestStkPush } from "@/services/payhero";
 
 export const Route = createFileRoute("/subscribe")({
   validateSearch: z.object({ redirect: z.string().optional() }),
@@ -98,6 +99,7 @@ function TransferCard({ email, onDone }: { email: string; onDone: () => void }) 
 function SubscribePage() {
   const { redirect } = useSearch({ from: "/subscribe" });
   const navigate = useNavigate();
+  const { session } = useSession();
   const { signedIn, email, creds, state, isPremium, needsTransfer, loading, refresh } = useAccount();
 
   const [phone, setPhone] = useState("");
@@ -110,7 +112,10 @@ function SubscribePage() {
   }, [state?.phone, phone]);
 
   const pay = useMutation({
-    mutationFn: () => startSubscription({ data: { ...creds!, phone } }),
+    mutationFn: async () => {
+      const cleanPhone = normalizeKenyanPhone(phone);
+      return await requestStkPush({ phone: cleanPhone, userId: session?.user?.id });
+    },
     onSuccess: (data) => {
       setReference(data.reference);
       setWaiting(true);
@@ -119,18 +124,88 @@ function SubscribePage() {
     onError: (error) => toast.error(errorText(error)),
   });
 
-  // Poll until the backend has verified the payment with PayHero.
+  // Poll PayHero directly until payment succeeds or fails
   useEffect(() => {
-    if (!waiting || !reference || !creds) return;
+    if (!waiting || !reference) return;
     let cancelled = false;
     const started = Date.now();
 
     const tick = async () => {
       if (cancelled) return;
       try {
-        const result = await mySubscriptionPayment({ data: { ...creds, reference } });
-        if (result.isPremium) {
+        const result = await checkPaymentStatus(reference);
+        if (result.status === "SUCCESS") {
           setWaiting(false);
+          const userId = session?.user?.id;
+          if (userId) {
+            // Store active 30-day subscription persistently
+            const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+            try {
+              localStorage.setItem(
+                `bujuu_sub_${userId}`,
+                JSON.stringify({ isPremium: true, phone, expiresAt, reference })
+              );
+            } catch {}
+
+            // Synchronize with Supabase if accessible
+            try {
+              const { data: existingSub } = await supabase
+                .from("subscribers")
+                .select("id")
+                .eq("user_id", userId)
+                .maybeSingle();
+
+              let subId = existingSub?.id;
+              if (!subId) {
+                const { data: createdSub } = await supabase
+                  .from("subscribers")
+                  .insert({ user_id: userId, phone })
+                  .select("id")
+                  .maybeSingle();
+                subId = createdSub?.id;
+              }
+
+              if (subId) {
+                await supabase.from("subscriptions").insert({
+                  subscriber_id: subId,
+                  status: "active",
+                  expires_at: expiresAt,
+                  auto_renew: false,
+                });
+              }
+
+              // Check if user came from a referral code
+              const refCode = localStorage.getItem("bujuu_referral_code") || localStorage.getItem("bujuu.ref");
+              if (refCode) {
+                const { data: refOwner } = await supabase
+                  .from("referral_codes")
+                  .select("user_id")
+                  .eq("code", refCode)
+                  .maybeSingle();
+
+                if (refOwner?.user_id && refOwner.user_id !== userId) {
+                  await supabase.from("referrals").upsert(
+                    {
+                      referrer_id: refOwner.user_id,
+                      referred_user_id: userId,
+                      status: "qualified",
+                      qualified_at: new Date().toISOString(),
+                    },
+                    { onConflict: "referred_user_id" }
+                  );
+
+                  await supabase.from("referral_ledger").insert({
+                    user_id: refOwner.user_id,
+                    amount: 30,
+                    kind: "reward",
+                  });
+                }
+              }
+            } catch (syncErr) {
+              console.warn("Supabase sub sync note:", syncErr);
+            }
+          }
+
           refresh();
           if (!doneRef.current) {
             doneRef.current = true;
@@ -139,7 +214,8 @@ function SubscribePage() {
           }
           return;
         }
-        if (result.paymentStatus === "failed") {
+
+        if (result.status === "FAILED") {
           setWaiting(false);
           toast.error("That payment didn't go through. You can try again.");
           return;
@@ -147,12 +223,13 @@ function SubscribePage() {
       } catch {
         /* keep polling */
       }
+
       if (Date.now() - started > 180_000) {
         setWaiting(false);
         toast.error("We didn't see the payment yet. If you paid, it will show here shortly.");
         return;
       }
-      window.setTimeout(() => void tick(), 4000);
+      window.setTimeout(() => void tick(), 3500);
     };
 
     const id = window.setTimeout(() => void tick(), 3000);
@@ -160,7 +237,7 @@ function SubscribePage() {
       cancelled = true;
       window.clearTimeout(id);
     };
-  }, [waiting, reference, creds, refresh, redirect, navigate]);
+  }, [waiting, reference, session, refresh, redirect, navigate, phone]);
 
   return (
     <AppShell>
@@ -215,7 +292,7 @@ function SubscribePage() {
               />
               <Button
                 className="w-full"
-                disabled={!creds || pay.isPending || waiting || phone.length < 9}
+                disabled={pay.isPending || waiting || phone.trim().length < 9}
                 onClick={() => pay.mutate()}
               >
                 {waiting || pay.isPending ? (

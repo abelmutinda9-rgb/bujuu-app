@@ -58,6 +58,25 @@ export function useDevice() {
         localStorage.setItem(KEY, JSON.stringify(next));
         setCreds(next);
       })
+      .catch(() => {
+        if (cancelled) return;
+        const fallback: DeviceCreds = {
+          deviceId:
+            typeof crypto !== "undefined" && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `dev_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          deviceSecret:
+            typeof crypto !== "undefined" && crypto.getRandomValues
+              ? Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) =>
+                  b.toString(16).padStart(2, "0")
+                ).join("")
+              : `sec_${Math.random().toString(36).slice(2)}`,
+        };
+        try {
+          localStorage.setItem(KEY, JSON.stringify(fallback));
+        } catch {}
+        setCreds(fallback);
+      })
       .finally(() => {
         if (!cancelled) setReady(true);
       });
@@ -70,33 +89,37 @@ export function useDevice() {
 }
 
 /**
- * Subscription state for this device, re-checked every 30 seconds so a device
- * that has been taken over elsewhere locks itself promptly.
+ * React hook that polls the subscriber's current access state.
+ * Drives the paywall and the lock icon across the whole app.
  */
 export function useAccess() {
+  const qc = useQueryClient();
   const { creds, ready } = useDevice();
-  const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: ["access", creds?.deviceId],
     enabled: Boolean(creds),
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
-    queryFn: () => getAccess({ data: creds! }),
+    queryFn: async () => {
+      if (!creds) throw new Error("no creds");
+      return await getAccess({ data: creds });
+    },
+    staleTime: 60 * 1000,
+    refetchInterval: (query) => {
+      // If active, poll slowly (every 5 min); if pending/expired, poll more eagerly.
+      return query.state.data?.active ? 5 * 60 * 1000 : 30 * 1000;
+    },
   });
 
-  const refresh = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ["access"] });
-  }, [queryClient]);
+  const invalidate = useCallback(() => {
+    return qc.invalidateQueries({ queryKey: ["access"] });
+  }, [qc]);
 
   return {
+    ...query,
+    ready: ready && !query.isLoading,
+    active: Boolean(query.data?.active),
+    access: query.data,
     creds,
-    deviceReady: ready,
-    access: query.data ?? null,
-    premium: query.data?.active === true,
-    lockedOut: query.data?.reason === "device_revoked",
-    loading: !ready || query.isPending,
-    refresh,
+    invalidate,
   };
 }

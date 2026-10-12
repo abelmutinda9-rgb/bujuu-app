@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { useAccount } from "@/hooks/use-account";
+import { useAccount, useSession } from "@/hooks/use-account";
 import { supabase } from "@/integrations/supabase/client";
 import { myReferrals } from "@/lib/account.functions";
 import { myWithdrawals, requestReferralWithdrawal } from "@/lib/withdrawal.functions";
@@ -38,77 +38,97 @@ function ProfilePage() {
   const { signedIn, email, state, isPremium: active, needsTransfer, loading, refresh } = useAccount();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const access = state;
+
+  const handleSignOut = async () => {
+    try {
+      await signOutSession();
+      refresh();
+      toast.success("Signed out");
+    } catch {
+      toast.error("Could not sign out");
+    }
+  };
+
+  const initial = (email ?? "U").charAt(0).toUpperCase();
 
   return (
     <AppShell>
-      <div className="px-4 pb-24 pt-24 lg:px-8">
-        <div className="flex items-center gap-4">
-          <Avatar className="h-14 w-14 shrink-0 rounded-md">
-            <AvatarFallback className="rounded-md bg-secondary text-lg font-semibold">
-              BJ
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-bold">
-              {email ?? "bujuu viewer"}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {!signedIn ? "Not signed in" : loading ? "Checking your subscription…" : active ? "Premium Active" : needsTransfer ? "Active on another device" : "No active subscription"}
-            </p>
-          </div>
-        </div>
+      <div className="mx-auto max-w-2xl px-4 pb-24 pt-24 lg:px-8">
+        <h1 className="text-2xl font-bold">My Profile</h1>
 
-        <div className="mt-8 max-w-md rounded-lg border border-border p-5">
-          {active ? (
-            <>
-              <div className="flex items-center gap-2 text-brand">
-                <CheckCircle2 className="h-5 w-5" />
-                <span className="font-semibold">KSh 150 plan · 30 days</span>
+        {!signedIn ? (
+          <div className="mt-6 space-y-4 rounded-lg border border-border p-6">
+            <p className="text-sm text-muted-foreground">
+              Sign in with your Google account to keep your subscription across installs and see your account status.
+            </p>
+            <GoogleButton />
+          </div>
+        ) : (
+          <div className="mt-6 space-y-6">
+            <div className="flex items-center gap-4 rounded-lg border border-border p-5">
+              <Avatar className="h-14 w-14">
+                <AvatarFallback className="bg-brand/20 text-brand text-lg font-bold">
+                  {initial}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold truncate">{email}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Signed in with Google
+                </p>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Valid until{" "}
-                {access?.expiresAt ? new Date(access.expiresAt).toLocaleDateString() : "—"} · this
-                device only.
-              </p>
-              <Button asChild variant="secondary" className="mt-5 w-full">
-                <Link to="/subscribe">Renew or move device</Link>
+              <Button variant="outline" size="sm" onClick={handleSignOut}>
+                Sign out
               </Button>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <ShieldAlert className="h-5 w-5" />
-                <span className="font-semibold text-foreground">Watching is locked</span>
+            </div>
+
+            <div className="rounded-lg border border-border p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Subscription</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    {active ? (
+                      <>
+                        <CheckCircle2 className="h-4 w-4 text-brand" />
+                        <span className="font-semibold text-brand">Active</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-semibold text-muted-foreground">
+                          {state?.status === "EXPIRED" ? "Expired" : "No active subscription"}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {!active && (
+                  <Button size="sm" onClick={() => void navigate({ to: "/subscribe" })}>
+                    Subscribe (KSh 150)
+                  </Button>
+                )}
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Pay KSh 150 with M-Pesa for 30 days of unlimited movies and shows on one device.
-              </p>
-              <Button asChild className="mt-5 w-full">
-                <Link to="/subscribe">Unlock bujuu</Link>
-              </Button>
-            </>
-          )}
-          {!signedIn && <div className="mt-3"><GoogleButton /></div>}
-          {signedIn && (
-            <button
-              type="button"
-              onClick={() => void signOutSession(queryClient, () => void navigate({ to: "/auth", replace: true }))}
-              className="mt-3 w-full text-xs text-muted-foreground underline-offset-4 hover:underline"
-            >
-              Sign out
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={refresh}
-            className="mt-3 w-full text-xs text-muted-foreground underline-offset-4 hover:underline"
-          >
-            Refresh status
-          </button>
-        </div>
-        {signedIn && <InviteFriends />}
-        <ContactSupport />
+
+              {state?.expiresAt && (
+                <p className="text-xs text-muted-foreground mt-3">
+                  {active ? "Renews/expires on: " : "Expired on: "}
+                  {new Date(state.expiresAt).toLocaleDateString()}
+                </p>
+              )}
+
+              {state?.phone && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  M-Pesa number: {state.phone}
+                </p>
+              )}
+            </div>
+
+            <InviteFriends />
+
+            <ContactSupport />
+          </div>
+        )}
       </div>
     </AppShell>
   );
@@ -118,15 +138,18 @@ function ContactSupport() {
   const items = [
     { label: "WhatsApp", sub: "0713767370", href: "https://wa.me/254713767370", Icon: MessageCircle, external: true },
     { label: "Instagram", sub: "@bu.j.uu", href: "https://instagram.com/bu.j.uu", Icon: Instagram, external: true },
-    { label: "Call Us", sub: "0713767370", href: "tel:+254713767370", Icon: Phone, external: false },
+    { label: "Phone", sub: "0713767370", href: "tel:0713767370", Icon: Phone, external: true },
   ];
+
   return (
     <div className="mt-6 max-w-md rounded-lg border border-border p-5">
       <div className="flex items-center gap-2">
         <Headphones className="h-5 w-5 text-brand" />
-        <span className="font-semibold">Contact &amp; Support</span>
+        <span className="font-semibold">Contact & Support</span>
       </div>
-      <p className="mt-2 text-sm text-muted-foreground">Need help? Reach the bujuu team directly.</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Need help with your subscription or playback? Reach out anytime.
+      </p>
       <div className="mt-4 grid grid-cols-3 gap-2">
         {items.map(({ label, sub, href, Icon, external }) => (
           <a
@@ -146,17 +169,87 @@ function ContactSupport() {
 }
 
 function InviteFriends() {
-  const q = useQuery({ queryKey: ["referrals"], queryFn: () => myReferrals() });
-  const link = q.data ? `${window.location.origin}/r/${q.data.code}` : "";
+  const { session } = useSession();
+  const userId = session?.user?.id;
+
+  const q = useQuery({
+    queryKey: ["referrals", userId],
+    queryFn: async () => {
+      try {
+        return await myReferrals();
+      } catch (err) {
+        // Fallback for native Android or when remote server is unreachable
+        let code = "";
+        if (userId) {
+          try {
+            const { data: codeRow } = await supabase
+              .from("referral_codes")
+              .select("code")
+              .eq("user_id", userId)
+              .maybeSingle();
+            if (codeRow?.code) code = codeRow.code;
+          } catch {}
+
+          if (!code) {
+            code = userId.replace(/-/g, "").slice(0, 8).toUpperCase();
+          }
+        } else {
+          code = "BUJUU";
+        }
+
+        let invited = 0;
+        let paying = 0;
+        let earned = 0;
+
+        if (userId) {
+          try {
+            const { data: refs } = await supabase
+              .from("referrals")
+              .select("status")
+              .eq("referrer_id", userId);
+            if (refs) {
+              invited = refs.length;
+              paying = refs.filter((r) => r.status === "qualified").length;
+            }
+          } catch {}
+
+          try {
+            const { data: ledger } = await supabase
+              .from("referral_ledger")
+              .select("amount, kind")
+              .eq("user_id", userId);
+            if (ledger) {
+              earned = ledger.reduce(
+                (acc, l) => acc + (l.kind === "reward" ? l.amount : -l.amount),
+                0
+              );
+            }
+          } catch {}
+        }
+
+        return { code, invited, paying, earned, reward: 30 };
+      }
+    },
+  });
+
+  const isNative = typeof window !== "undefined" && (window as any).Capacitor?.isNativePlatform?.();
+  const baseOrigin = isNative ? "https://lynnn.lovable.app" : window.location.origin;
+  const link = q.data?.code ? `${baseOrigin}/r/${q.data.code}` : "";
+
   const share = async () => {
     if (!link) return;
     if (navigator.share) {
-      await navigator.share({ title: "bujuu", text: "Watch movies on bujuu", url: link }).catch(() => undefined);
+      await navigator.share({
+        title: "bujuu",
+        text: "Watch unlimited movies on bujuu! Use my link to join:",
+        url: link,
+      }).catch(() => undefined);
     } else {
       await navigator.clipboard.writeText(link);
-      toast.success("Invite link copied.");
+      toast.success("Invite link copied to clipboard.");
     }
   };
+
   return (
     <div className="mt-6 max-w-md rounded-lg border border-border p-5">
       <div className="flex items-center gap-2">
@@ -166,7 +259,9 @@ function InviteFriends() {
       <p className="mt-2 text-sm text-muted-foreground">
         Earn KSh {q.data?.reward ?? 30} for every friend who subscribes through your link.
       </p>
-      <p className="mt-3 break-all rounded-md bg-secondary px-3 py-2 text-xs">{q.isLoading ? "Loading…" : link ? link : "Invite code available online."}</p>
+      <p className="mt-3 break-all rounded-md bg-secondary px-3 py-2 text-xs">
+        {q.isLoading ? "Loading…" : link ? link : "Invite code available online."}
+      </p>
       <Button className="mt-3 w-full" variant="secondary" disabled={!link} onClick={share}>
         Share link
       </Button>
