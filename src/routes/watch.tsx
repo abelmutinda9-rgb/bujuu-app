@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { ArrowLeft, ListVideo, Loader2, SkipForward, X } from "lucide-react";
+import { ArrowLeft, ListVideo, Loader2, Lock, ShieldAlert, SkipForward, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
+import { useAccount } from "@/hooks/use-account";
 import { embedUrl, PROVIDERS, SERVER_COUNT } from "@/services/embeds";
 import { detailsQuery, seasonQuery, stillUrl } from "@/services/tmdb";
 
@@ -33,18 +34,21 @@ function Watch() {
   const router = useRouter();
   const navigate = useNavigate({ from: "/watch" });
 
+  const { isPremium, loading: accountLoading, signedIn, state } = useAccount();
+
   const [loaded, setLoaded] = useState(false);
   const [server, setServer] = useState(0);
   const [showEpisodes, setShowEpisodes] = useState(false);
   const isTv = mediaType === "tv";
 
-  // Directly generate stream embed URL so movie/show plays immediately without server bottleneck
-  const src = embedUrl({ tmdbId, mediaType, season, episode }, server);
+  // Strict entitlement check: only generate embed URL when actively subscribed and authorized
+  const canPlay = !accountLoading && signedIn && isPremium && state?.status === "ACTIVE";
+  const src = canPlay ? embedUrl({ tmdbId, mediaType, season, episode }, server) : null;
 
   // Reset loading state and set safety reveal timeout whenever the source changes
   useEffect(() => {
     setLoaded(false);
-    // Reveal player within 3.5 seconds even if cross-origin iframe does not trigger onLoad
+    if (!src) return;
     const timer = window.setTimeout(() => {
       setLoaded(true);
     }, 3500);
@@ -95,6 +99,64 @@ function Watch() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [showEpisodes, back]);
+
+  // 1. Account loading state
+  if (accountLoading) {
+    return (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black p-4 text-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-rose-500" />
+          <p className="text-sm text-muted-foreground">Checking subscription status…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Unauthenticated or unpaid locked state — strictly deny playback
+  if (!signedIn || !isPremium || !canPlay) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950 p-6 text-center">
+        <div className="max-w-md space-y-5 rounded-2xl border border-zinc-800 bg-zinc-900/90 p-8 shadow-2xl backdrop-blur-md">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-rose-500/10 text-rose-500">
+            <Lock className="h-7 w-7" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold tracking-tight text-white">
+              {state?.status === "EXPIRED" ? "Subscription Expired" : "Subscription Required"}
+            </h2>
+            <p className="text-sm text-zinc-400">
+              {state?.status === "EXPIRED"
+                ? "Your 30-day BUJUU subscription has ended. Renew for KSh 150 to keep streaming."
+                : "An active subscription (KSh 150 for 30 days) is required to watch movies and series on BUJUU."}
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() =>
+                void navigate({
+                  to: "/subscribe",
+                  search: {
+                    redirect: `/watch?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`,
+                  },
+                })
+              }
+              className="w-full rounded-xl bg-rose-600 py-3 text-sm font-bold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              Unlock for KSh 150 (30 Days)
+            </button>
+            <button
+              type="button"
+              onClick={back}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-800/60 py-2.5 text-sm font-semibold text-zinc-300 transition-colors hover:bg-zinc-800"
+            >
+              Go Back
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 m-0 h-screen w-screen overflow-hidden bg-black p-0">

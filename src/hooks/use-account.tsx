@@ -68,7 +68,7 @@ async function fetchClientAccountState(userId: string): Promise<AccountState> {
         phone: null,
         expiresAt: null,
         autoRenew: false,
-        deviceAuthorized: true,
+        deviceAuthorized: false,
         subscriberId: null,
       };
     }
@@ -88,7 +88,7 @@ async function fetchClientAccountState(userId: string): Promise<AccountState> {
         phone: subscriber.phone,
         expiresAt: null,
         autoRenew: false,
-        deviceAuthorized: true,
+        deviceAuthorized: false,
         subscriberId: subscriber.id,
       };
     }
@@ -100,7 +100,7 @@ async function fetchClientAccountState(userId: string): Promise<AccountState> {
       phone: subscriber.phone,
       expiresAt: sub.expires_at,
       autoRenew: sub.auto_renew === true,
-      deviceAuthorized: true,
+      deviceAuthorized: live,
       subscriberId: subscriber.id,
     };
   } catch (err) {
@@ -111,7 +111,7 @@ async function fetchClientAccountState(userId: string): Promise<AccountState> {
       phone: null,
       expiresAt: null,
       autoRenew: false,
-      deviceAuthorized: true,
+      deviceAuthorized: false,
       subscriberId: null,
     };
   }
@@ -174,6 +174,7 @@ export function useAccount() {
   }, [queryClient]);
 
   const state = status.data ?? sync.data ?? null;
+  const isPremium = state?.isPremium === true && state?.status === "ACTIVE";
   const hasSub = state ? state.status === "ACTIVE" || state.status === "DEVICE_NOT_AUTHORIZED" : false;
 
   const loading = !sessionReady || !deviceReady || (Boolean(session) && !state && !sync.isError && sync.isLoading);
@@ -184,7 +185,7 @@ export function useAccount() {
     email: session?.user.email ?? null,
     creds,
     state,
-    isPremium: state?.isPremium === true,
+    isPremium,
     needsTransfer: Boolean(state && !state.deviceAuthorized && hasSub),
     loading,
     error: sync.error ?? null,

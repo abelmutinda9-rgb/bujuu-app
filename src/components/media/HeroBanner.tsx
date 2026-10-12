@@ -1,7 +1,9 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Check, Info, Plus, Play } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
+import { useAccount } from "@/hooks/use-account";
 import { useMyListToggle } from "@/hooks/use-library";
 import type { MediaItem } from "@/services/tmdb";
 import { backdropUrl } from "@/services/tmdb";
@@ -30,6 +32,8 @@ export function HeroBanner({
   const [failedImages, setFailedImages] = useState<Set<number>>(() => new Set());
   const currentItem = rotationItems[currentIndex] ?? item;
   const myList = useMyListToggle(currentItem);
+  const { isPremium, signedIn } = useAccount();
+  const navigate = useNavigate();
 
   useEffect(() => {
     setCurrentIndex(0);
@@ -61,6 +65,19 @@ export function HeroBanner({
     : undefined;
   const tags = currentItem.genreIds.map((id) => GENRES[id]).filter(Boolean).slice(0, 3);
   const year = currentItem.releaseDate ? new Date(currentItem.releaseDate).getFullYear() : undefined;
+
+  const handlePlayClick = (e: React.MouseEvent) => {
+    if (!signedIn || !isPremium) {
+      e.preventDefault();
+      toast.error("Active subscription (KSh 150 / 30 days) required to watch movies.");
+      void navigate({
+        to: "/subscribe",
+        search: {
+          redirect: `/watch?tmdbId=${currentItem.id}&mediaType=${currentItem.mediaType}&season=1&episode=1`,
+        },
+      });
+    }
+  };
 
   return (
     <section
@@ -122,6 +139,7 @@ export function HeroBanner({
           <Link
             to="/watch"
             search={{ tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 }}
+            onClick={handlePlayClick}
             className="inline-flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-xs font-bold text-black shadow-lg transition-transform hover:scale-105 active:scale-95 sm:px-6 sm:py-3 sm:text-sm"
           >
             <Play className="h-4 w-4 fill-black sm:h-5 sm:w-5" /> Play

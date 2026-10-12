@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Check, Play, Plus } from "lucide-react";
+import { toast } from "sonner";
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
+import { useAccount } from "@/hooks/use-account";
 import { useMyListToggle } from "@/hooks/use-library";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import {
@@ -51,9 +53,25 @@ function Hero({ item }: { item: MediaItem }) {
   );
 }
 
-function Body({ item }: { item: MediaItem }) {
+function Body({ item, onOpenChange }: { item: MediaItem; onOpenChange: (open: boolean) => void }) {
   const { data } = useQuery(detailsQuery(item.id, item.mediaType));
   const myList = useMyListToggle(item);
+  const { isPremium, signedIn } = useAccount();
+  const navigate = useNavigate();
+
+  const handlePlayClick = (e: React.MouseEvent) => {
+    if (!signedIn || !isPremium) {
+      e.preventDefault();
+      onOpenChange(false);
+      toast.error("Active subscription (KSh 150 / 30 days) required to watch movies.");
+      void navigate({
+        to: "/subscribe",
+        search: {
+          redirect: `/watch?tmdbId=${item.id}&mediaType=${item.mediaType}&season=1&episode=1`,
+        },
+      });
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -74,6 +92,7 @@ function Body({ item }: { item: MediaItem }) {
             to="/watch"
             tabIndex={0}
             search={{ tmdbId: item.id, mediaType: item.mediaType, season: 1, episode: 1 }}
+            onClick={handlePlayClick}
             className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-white px-6 py-2.5 text-sm font-semibold text-black outline-none transition-transform hover:opacity-85 focus:scale-105 focus:ring-4 focus:ring-brand"
           >
             <Play className="h-4 w-4 fill-black" /> Play
@@ -106,7 +125,7 @@ export function MediaDetail({ item, onOpenChange }: MediaDetailProps) {
             <>
               <DialogTitle className="sr-only">{item.title}</DialogTitle>
               <DialogDescription className="sr-only">Details for {item.title}</DialogDescription>
-              <Body item={item} />
+              <Body item={item} onOpenChange={onOpenChange} />
             </>
           )}
         </DialogContent>
@@ -122,7 +141,7 @@ export function MediaDetail({ item, onOpenChange }: MediaDetailProps) {
             <>
               <DrawerTitle className="sr-only">{item.title}</DrawerTitle>
               <DrawerDescription className="sr-only">Details for {item.title}</DrawerDescription>
-              <Body item={item} />
+              <Body item={item} onOpenChange={onOpenChange} />
             </>
           )}
         </div>

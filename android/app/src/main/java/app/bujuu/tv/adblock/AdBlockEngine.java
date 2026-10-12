@@ -17,7 +17,8 @@ public class AdBlockEngine {
     private static volatile AdBlockEngine instance;
     private boolean initialized = false;
 
-    // Hard allowlist for critical video streaming, auth and metadata providers
+    // Hard allowlist for critical app infrastructure, auth and metadata providers only.
+    // Provider embed hosts are purposefully omitted so third-party ad/tracking requests inside frames are filtered.
     private static final Set<String> ALLOWED_HOST_SUFFIXES = new HashSet<>(Arrays.asList(
             "localhost",
             "127.0.0.1",
@@ -29,13 +30,7 @@ public class AdBlockEngine {
             "google.com",
             "accounts.google.com",
             "googleusercontent.com",
-            "gstatic.com",
-            "vidfast.pro",
-            "vidy.st",
-            "vidrock.net",
-            "vidvault.ru",
-            "vidsrc.mov",
-            "vidzee.wtf"
+            "gstatic.com"
     ));
 
     // Fallback domain blacklist if native library is pending or running in basic emulator
@@ -52,7 +47,11 @@ public class AdBlockEngine {
             "monetag.com",
             "yllix.com",
             "taboola.com",
-            "outbrain.com"
+            "outbrain.com",
+            "trafficjunky.com",
+            "clickadu.com",
+            "admaven.com",
+            "hilltopads.com"
     ));
 
     private AdBlockEngine() {}
@@ -72,7 +71,7 @@ public class AdBlockEngine {
         if (initialized) return;
 
         if (!AdBlockBridge.isLibraryLoaded()) {
-            Log.w(TAG, "Native library not loaded; using fallback domain rules");
+            Log.w(TAG, "Native adblock library not loaded; using fallback domain rules");
             initialized = true;
             return;
         }
@@ -88,7 +87,7 @@ public class AdBlockEngine {
             reader.close();
 
             boolean ok = AdBlockBridge.nativeInit(sb.toString());
-            Log.i(TAG, "Native Brave adblock engine initialized: " + ok);
+            Log.i(TAG, "Native Brave adblock engine initialized with official filters: " + ok);
             initialized = true;
         } catch (Exception e) {
             Log.e(TAG, "Failed to initialize adblock filters from assets", e);
@@ -99,32 +98,52 @@ public class AdBlockEngine {
         if (request == null) return false;
         Uri uri = request.getUrl();
         if (uri == null) return false;
+        return shouldBlock(uri.toString());
+    }
+
+    public boolean shouldBlock(String urlString) {
+        if (urlString == null || urlString.isEmpty()) return false;
+
+        Uri uri;
+        try {
+            uri = Uri.parse(urlString);
+        } catch (Exception e) {
+            return false;
+        }
 
         String host = uri.getHost();
         if (host == null) return false;
         host = host.toLowerCase();
 
-        // 1. Check Allowlist: never block critical playback/auth/metadata
+        // 1. Never block critical auth, supabase, metadata, or app infrastructure
         for (String allowed : ALLOWED_HOST_SUFFIXES) {
             if (host.equals(allowed) || host.endsWith("." + allowed)) {
                 return false;
             }
         }
 
-        String urlString = uri.toString();
-        // Allow video streaming media manifests and segments
+        // 2. Never block actual video streaming media manifests or segments
         if (urlString.contains(".m3u8") || urlString.contains(".mpd") || urlString.contains(".ts")) {
             return false;
         }
 
-        // 2. Query Genuine Brave adblock-rust engine if native library is loaded
+        // 3. Query Genuine Brave adblock-rust engine if native library is loaded
         if (AdBlockBridge.isLibraryLoaded() && initialized) {
             try {
                 String sourceUrl = "https://app.bujuu.tv";
                 String reqType = "other";
+                String lower = urlString.toLowerCase();
+                if (lower.contains(".js") || lower.contains("/js/")) {
+                    reqType = "script";
+                } else if (lower.contains(".css")) {
+                    reqType = "stylesheet";
+                } else if (lower.contains(".png") || lower.contains(".jpg") || lower.contains(".webp") || lower.contains(".gif")) {
+                    reqType = "image";
+                }
+
                 boolean blocked = AdBlockBridge.nativeShouldBlock(urlString, sourceUrl, reqType);
                 if (blocked) {
-                    Log.d(TAG, "Blocked ad request: " + urlString);
+                    Log.d(TAG, "Brave adblock blocked: " + urlString);
                     return true;
                 }
             } catch (Throwable t) {
@@ -132,7 +151,7 @@ public class AdBlockEngine {
             }
         }
 
-        // 3. Fallback host blocking check
+        // 4. Fallback host blocking check
         for (String blockedHost : FALLBACK_BLOCKED_HOST_SUFFIXES) {
             if (host.equals(blockedHost) || host.endsWith("." + blockedHost)) {
                 Log.d(TAG, "Fallback blocked ad request: " + urlString);
