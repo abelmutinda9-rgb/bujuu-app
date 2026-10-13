@@ -26,6 +26,9 @@ import { GoogleButton } from "@/components/GoogleButton";
 import { useAccount, useSession } from "@/hooks/use-account";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeKenyanPhone } from "@/services/payhero";
+import { buildReferralUrl } from "@/config/referral";
+import { myReferrals } from "@/lib/account.functions";
+import { myWithdrawals, requestReferralWithdrawal } from "@/lib/withdrawal.functions";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -192,24 +195,13 @@ interface ReferralStats {
   withdrawn: number;
   available: number;
   reward: number;
-}
-
-function getStoredReferrals(code: string): any[] {
-  try {
-    const raw = localStorage.getItem(`bujuu_refs_${code}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function getStoredWithdrawals(userId: string): any[] {
-  try {
-    const raw = localStorage.getItem(`bujuu_withdrawals_${userId}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  history: Array<{
+    id: string;
+    amount: number;
+    phone: string;
+    status: string;
+    createdAt?: string;
+  }>;
 }
 
 function InviteFriends() {
@@ -218,9 +210,49 @@ function InviteFriends() {
 
   const q = useQuery<ReferralStats>({
     queryKey: ["referrals-v2", userId],
+    enabled: Boolean(userId),
     queryFn: async () => {
+      if (!userId) {
+        return {
+          code: "BUJUU",
+          invited: 0,
+          paying: 0,
+          earned: 0,
+          withdrawn: 0,
+          available: 0,
+          reward: 30,
+          history: [],
+        };
+      }
+
       let code = "";
-      if (userId) {
+      let invited = 0;
+      let paying = 0;
+      let earned = 0;
+      let available = 0;
+      let withdrawn = 0;
+      let history: ReferralStats["history"] = [];
+
+      try {
+        // 1. Authoritative server function
+        const summary = await myReferrals();
+        code = summary.code;
+        invited = summary.invited;
+        paying = summary.paying;
+        earned = summary.earned;
+
+        try {
+          const wSummary = await myWithdrawals();
+          available = wSummary.available;
+          withdrawn = Math.max(0, earned - available);
+          history = wSummary.history || [];
+        } catch {
+          available = earned;
+        }
+      } catch (err) {
+        console.warn("myReferrals server function failed; using direct Supabase queries:", err);
+
+        // 2. Direct Supabase query fallback (NO localStorage)
         try {
           const { data: codeRow } = await supabase
             .from("referral_codes")
@@ -233,55 +265,57 @@ function InviteFriends() {
         if (!code) {
           code = userId.replace(/-/g, "").slice(0, 8).toUpperCase();
         }
-      } else {
-        code = "BUJUU";
-      }
 
-      // Check local stored referrals
-      const localRefs = getStoredReferrals(code);
-      let invited = localRefs.length;
-      let paying = localRefs.filter((r) => r.status === "qualified").length;
-      let earned = paying * 30;
-
-      // Also query Supabase if accessible
-      if (userId) {
         try {
           const { data: refs } = await supabase
             .from("referrals")
             .select("status")
             .eq("referrer_id", userId);
-          if (refs && refs.length > 0) {
-            invited = Math.max(invited, refs.length);
-            const dbPaying = refs.filter((r) => r.status === "qualified").length;
-            paying = Math.max(paying, dbPaying);
-            earned = Math.max(earned, paying * 30);
+          if (refs) {
+            invited = refs.length;
+            paying = refs.filter((r) => r.status === "qualified").length;
+            earned = paying * 30;
           }
         } catch {}
+
+        try {
+          const { data: wList } = await supabase
+            .from("referral_withdrawals")
+            .select("id, amount, phone, status, created_at")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false });
+
+          if (wList) {
+            history = wList.map((w) => ({
+              id: w.id,
+              amount: Number(w.amount) || 0,
+              phone: w.phone,
+              status: w.status,
+              createdAt: w.created_at,
+            }));
+            withdrawn = history
+              .filter((w) => w.status === "paid" || w.status === "pending" || w.status === "processing")
+              .reduce((sum, w) => sum + w.amount, 0);
+          }
+        } catch {}
+
+        available = Math.max(0, earned - withdrawn);
       }
 
-      // Calculate withdrawals
-      const withdrawals = userId ? getStoredWithdrawals(userId) : [];
-      const withdrawn = withdrawals
-        .filter((w) => w.status === "paid" || w.status === "pending")
-        .reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
-
-      const available = Math.max(0, earned - withdrawn);
-
       return {
-        code,
+        code: code || "BUJUU",
         invited,
         paying,
         earned,
         withdrawn,
         available,
         reward: 30,
+        history,
       };
     },
   });
 
-  const isNative = typeof window !== "undefined" && (window as any).Capacitor?.isNativePlatform?.();
-  const baseOrigin = isNative ? "https://lynnn.lovable.app" : window.location.origin;
-  const link = q.data?.code ? `${baseOrigin}/r/${q.data.code}` : "";
+  const link = q.data?.code ? buildReferralUrl(q.data.code) : "";
 
   const copyLink = async () => {
     if (!link) return;
@@ -366,36 +400,45 @@ function WithdrawSection({ stats, userId }: { stats: ReferralStats; userId: stri
 
     try {
       const cleanPhone = normalizeKenyanPhone(phone);
-      const withdrawalRecord = {
-        id: `wd_${Date.now()}`,
-        amount: stats.available,
-        phone: cleanPhone,
-        status: "pending",
-        createdAt: new Date().toISOString(),
-      };
 
-      const existing = getStoredWithdrawals(userId);
-      existing.unshift(withdrawalRecord);
-      localStorage.setItem(`bujuu_withdrawals_${userId}`, JSON.stringify(existing));
+      // Attempt authoritative server withdrawal first
+      try {
+        await requestReferralWithdrawal({
+          data: {
+            phone: cleanPhone,
+            requestKey: crypto.randomUUID(),
+          },
+        });
+      } catch (serverErr: any) {
+        console.warn("requestReferralWithdrawal server call failed; trying direct Supabase RPC:", serverErr);
+        // Fallback to direct Supabase RPC if offline/client-only
+        const { error: rpcErr } = await supabase.rpc("reserve_referral_withdrawal", {
+          _user_id: userId,
+          _phone: cleanPhone,
+          _request_key: `${userId}:${Date.now()}`,
+          _min: 30,
+        });
+        if (rpcErr) throw rpcErr;
+      }
 
-      toast.success("Withdrawal requested! Message support on WhatsApp to receive KSh " + stats.available);
+      toast.success("Withdrawal requested successfully for KSh " + stats.available);
 
-      // Open WhatsApp to support with prefilled message
+      // Also provide WhatsApp link for direct disbursement assistance
       const msg = encodeURIComponent(
-        `Hello BUJUU Support! I have requested a referral withdrawal of KSh ${stats.available} for my account (${userId.slice(0, 8)}) to M-Pesa number ${cleanPhone}. Please disburse.`
+        `Hello BUJUU Support! I have requested a referral withdrawal of KSh ${stats.available} for my account (${userId.slice(0, 8)}) to M-Pesa number ${cleanPhone}.`
       );
       window.open(`https://wa.me/254713767370?text=${msg}`, "_blank");
 
       setOpen(false);
       await qc.invalidateQueries({ queryKey: ["referrals-v2"] });
     } catch (e: any) {
-      toast.error(e?.message || "Invalid phone number.");
+      toast.error(e?.message || "Could not process withdrawal request.");
     } finally {
       setBusy(false);
     }
   };
 
-  const history = getStoredWithdrawals(userId);
+  const history = stats.history || [];
 
   return (
     <div className="mt-5 border-t border-border pt-4">
@@ -439,36 +482,39 @@ function WithdrawSection({ stats, userId }: { stats: ReferralStats; userId: stri
           <DialogHeader>
             <DialogTitle>Withdraw Referral Earnings</DialogTitle>
           </DialogHeader>
+
           <div className="space-y-4 py-2">
-            <div>
-              <p className="text-xs text-muted-foreground">Amount to withdraw</p>
+            <div className="rounded-lg bg-secondary/50 p-3 text-sm">
+              <p className="text-muted-foreground">Available balance:</p>
               <p className="text-2xl font-bold text-green-500">KSh {stats.available}</p>
             </div>
-            <div>
-              <label htmlFor="wd-phone" className="text-xs font-medium">
-                M-Pesa phone number
+
+            <div className="space-y-1.5">
+              <label htmlFor="phone" className="text-sm font-medium">
+                M-Pesa Phone Number
               </label>
-              <div className="mt-1 relative">
-                <Input
-                  id="wd-phone"
-                  inputMode="tel"
-                  placeholder="0712345678"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                />
-                <Smartphone className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              </div>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Funds will be sent directly to this M-Pesa line.
+              <Input
+                id="phone"
+                placeholder="0712 345 678 or 254..."
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Earnings will be sent directly to this M-Pesa number.
               </p>
             </div>
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleWithdraw} disabled={busy || phone.trim().length < 9}>
-              {busy ? "Processing…" : "Confirm Withdrawal"}
+            <Button
+              onClick={handleWithdraw}
+              disabled={busy || !phone.trim() || stats.available < 30}
+              className="bg-brand hover:bg-brand/90"
+            >
+              {busy ? "Submitting..." : `Withdraw KSh ${stats.available}`}
             </Button>
           </DialogFooter>
         </DialogContent>

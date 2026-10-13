@@ -24,4 +24,10 @@ public class AdBlockBridge {
     public static native boolean nativeInit(String rules);
 
     public static native boolean nativeShouldBlock(String url, String sourceUrl, String requestType);
+
+    public static native String nativeGetRedirect(String url, String sourceUrl, String requestType);
+
+    public static native String nativeGetCosmeticSelectors(String url);
+
+    public static native String nativeGetScriptlet(String url);
 }

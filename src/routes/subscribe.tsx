@@ -139,45 +139,10 @@ function SubscribePage() {
         const result = await checkPaymentStatus(reference);
         if (result.status === "SUCCESS") {
           setWaiting(false);
-          const userId = session?.user?.id || "local";
-          const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
-          const cleanPhone = normalizeKenyanPhone(phone);
-
-          const subData = {
-            isPremium: true,
-            status: "ACTIVE",
-            phone: cleanPhone,
-            expiresAt,
-            reference,
-            updatedAt: new Date().toISOString(),
-          };
-
-          try {
-            localStorage.setItem(`bujuu_sub_${userId}`, JSON.stringify(subData));
-            localStorage.setItem("bujuu_sub_active", JSON.stringify(subData));
-          } catch {}
-
-          // Handle referral rewards
-          try {
-            const refCode = localStorage.getItem("bujuu_referral_code") || localStorage.getItem("bujuu.ref");
-            if (refCode) {
-              const refsRaw = localStorage.getItem(`bujuu_refs_${refCode}`) || "[]";
-              const refs = JSON.parse(refsRaw);
-              refs.push({
-                date: new Date().toISOString(),
-                user: userId,
-                phone: cleanPhone,
-                status: "qualified",
-                amount: 30,
-              });
-              localStorage.setItem(`bujuu_refs_${refCode}`, JSON.stringify(refs));
-            }
-          } catch {}
-
           refresh();
           if (!doneRef.current) {
             doneRef.current = true;
-            toast.success("Premium active! Enjoy unlimited streaming on bujuu.");
+            toast.success("Payment confirmed! Activating your subscription...");
             if (redirect) void navigate({ to: redirect });
             else void navigate({ to: "/" });
           }

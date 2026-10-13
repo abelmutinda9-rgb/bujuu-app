@@ -2,6 +2,7 @@ package app.bujuu.tv;
 
 import android.app.DownloadManager;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -43,15 +44,28 @@ public class MainActivity extends BridgeActivity {
                 }
             });
 
-            // Intercept WebView network requests and redirects to block ads & popups natively
+            // Intercept WebView network requests, redirects, and dom life cycle to block ads natively
             getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
                 @Override
                 public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                    if (AdBlockEngine.getInstance().shouldBlock(request)) {
-                        Log.d(TAG, "Suppressed ad resource request: " + request.getUrl());
-                        return new WebResourceResponse("text/plain", "UTF-8", new ByteArrayInputStream(new byte[0]));
+                    AdBlockEngine.AdBlockDecision decision = AdBlockEngine.getInstance().evaluateRequest(request);
+                    if (decision.isBlocked) {
+                        Log.d(TAG, "Suppressed ad resource request: " + request.getUrl() + " [serving " + decision.mimeType + "]");
+                        return new WebResourceResponse(decision.mimeType, "UTF-8", new ByteArrayInputStream(decision.data));
                     }
                     return super.shouldInterceptRequest(view, request);
+                }
+
+                @Override
+                public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                    super.onPageStarted(view, url, favicon);
+                    AdBlockEngine.getInstance().injectEarlyScriptlets(view, url);
+                }
+
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    super.onPageFinished(view, url);
+                    AdBlockEngine.getInstance().injectCosmeticHiding(view, url);
                 }
 
                 @Override

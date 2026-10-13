@@ -2,12 +2,15 @@ package app.bujuu.tv.adblock;
 
 import android.content.Context;
 import android.net.Uri;
+import android.util.Base64;
 import android.util.Log;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebView;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -17,8 +20,62 @@ public class AdBlockEngine {
     private static volatile AdBlockEngine instance;
     private boolean initialized = false;
 
+    // Bundled dummy assets to prevent video players and stream state machines from freezing
+    private static final byte[] TRANSPARENT_1X1_PNG = Base64.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+            Base64.DEFAULT
+    );
+
+    private static final byte[] MOCK_NOOP_JS = (
+            "(function() {\n" +
+            "  window.noop = function() {};\n" +
+            "  window.canRunAds = true;\n" +
+            "  window.isAdBlockActive = false;\n" +
+            "  window.adblock = false;\n" +
+            "  window.google_ad_client = null;\n" +
+            "  window.google_ad_status = 1;\n" +
+            "  window.googletag = window.googletag || {\n" +
+            "    cmd: [],\n" +
+            "    display: function() {},\n" +
+            "    defineSlot: function() { return this; },\n" +
+            "    addService: function() { return this; },\n" +
+            "    enableServices: function() {},\n" +
+            "    pubads: function() { return {\n" +
+            "      addEventListener: function() {},\n" +
+            "      clear: function() {},\n" +
+            "      refresh: function() {},\n" +
+            "      enableSingleRequest: function() {},\n" +
+            "      collapseEmptyDivs: function() {}\n" +
+            "    }; }\n" +
+            "  };\n" +
+            "  window.adsbygoogle = window.adsbygoogle || [];\n" +
+            "  window.adsbygoogle.loaded = true;\n" +
+            "})();\n"
+    ).getBytes(StandardCharsets.UTF_8);
+
+    private static final byte[] EMPTY_BYTES = new byte[0];
+
+    public static class AdBlockDecision {
+        public final boolean isBlocked;
+        public final String mimeType;
+        public final byte[] data;
+
+        public AdBlockDecision(boolean isBlocked, String mimeType, byte[] data) {
+            this.isBlocked = isBlocked;
+            this.mimeType = mimeType;
+            this.data = data;
+        }
+
+        public static AdBlockDecision allowed() {
+            return new AdBlockDecision(false, "text/plain", EMPTY_BYTES);
+        }
+
+        public static AdBlockDecision blocked(String mimeType, byte[] data) {
+            return new AdBlockDecision(true, mimeType, data);
+        }
+    }
+
     // Hard allowlist for critical app infrastructure, auth and metadata providers only.
-    // Provider embed hosts are purposefully omitted so third-party ad/tracking requests inside frames are filtered.
     private static final Set<String> ALLOWED_HOST_SUFFIXES = new HashSet<>(Arrays.asList(
             "localhost",
             "127.0.0.1",
@@ -51,7 +108,16 @@ public class AdBlockEngine {
             "trafficjunky.com",
             "clickadu.com",
             "admaven.com",
-            "hilltopads.com"
+            "hilltopads.com",
+            "richpush.co",
+            "evadav.com",
+            "zeropark.com",
+            "popmyads.com",
+            "clicksor.com",
+            "adcash.com",
+            "mgid.com",
+            "bidvertiser.com",
+            "revenuehits.com"
     ));
 
     private AdBlockEngine() {}
@@ -78,7 +144,7 @@ public class AdBlockEngine {
 
         try {
             InputStream is = context.getAssets().open("adblock-filters.txt");
-            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
@@ -94,57 +160,74 @@ public class AdBlockEngine {
         }
     }
 
-    public boolean shouldBlock(WebResourceRequest request) {
-        if (request == null) return false;
-        Uri uri = request.getUrl();
-        if (uri == null) return false;
-        return shouldBlock(uri.toString());
+    public AdBlockDecision evaluateRequest(WebResourceRequest request) {
+        if (request == null || request.getUrl() == null) {
+            return AdBlockDecision.allowed();
+        }
+        String urlString = request.getUrl().toString();
+        String sourceUrl = "https://app.bujuu.tv";
+        String reqType = "other";
+
+        String lower = urlString.toLowerCase();
+        if (lower.contains(".js") || lower.contains("/js/")) {
+            reqType = "script";
+        } else if (lower.contains(".css")) {
+            reqType = "stylesheet";
+        } else if (lower.contains(".png") || lower.contains(".jpg") || lower.contains(".webp") || lower.contains(".gif") || lower.contains(".ico")) {
+            reqType = "image";
+        } else if (lower.contains(".mp4") || lower.contains(".m4a") || lower.contains(".mp3") || lower.contains(".aac")) {
+            reqType = "media";
+        }
+
+        return evaluateRequest(urlString, sourceUrl, reqType);
     }
 
-    public boolean shouldBlock(String urlString) {
-        if (urlString == null || urlString.isEmpty()) return false;
+    public AdBlockDecision evaluateRequest(String urlString, String sourceUrl, String reqType) {
+        if (urlString == null || urlString.isEmpty()) {
+            return AdBlockDecision.allowed();
+        }
 
         Uri uri;
         try {
             uri = Uri.parse(urlString);
         } catch (Exception e) {
-            return false;
+            return AdBlockDecision.allowed();
         }
 
         String host = uri.getHost();
-        if (host == null) return false;
+        if (host == null) return AdBlockDecision.allowed();
         host = host.toLowerCase();
 
         // 1. Never block critical auth, supabase, metadata, or app infrastructure
         for (String allowed : ALLOWED_HOST_SUFFIXES) {
             if (host.equals(allowed) || host.endsWith("." + allowed)) {
-                return false;
+                return AdBlockDecision.allowed();
             }
         }
 
         // 2. Never block actual video streaming media manifests or segments
         if (urlString.contains(".m3u8") || urlString.contains(".mpd") || urlString.contains(".ts")) {
-            return false;
+            return AdBlockDecision.allowed();
         }
 
         // 3. Query Genuine Brave adblock-rust engine if native library is loaded
         if (AdBlockBridge.isLibraryLoaded() && initialized) {
             try {
-                String sourceUrl = "https://app.bujuu.tv";
-                String reqType = "other";
-                String lower = urlString.toLowerCase();
-                if (lower.contains(".js") || lower.contains("/js/")) {
-                    reqType = "script";
-                } else if (lower.contains(".css")) {
-                    reqType = "stylesheet";
-                } else if (lower.contains(".png") || lower.contains(".jpg") || lower.contains(".webp") || lower.contains(".gif")) {
-                    reqType = "image";
+                // Check resource redirection rule first
+                String redirect = AdBlockBridge.nativeGetRedirect(urlString, sourceUrl, reqType);
+                if (redirect != null && !redirect.isEmpty()) {
+                    Log.d(TAG, "Brave adblock redirect rule applied for: " + urlString);
+                    byte[] data = redirect.getBytes(StandardCharsets.UTF_8);
+                    return AdBlockDecision.blocked(
+                            reqType.equals("script") ? "application/javascript" : "text/plain",
+                            data
+                    );
                 }
 
                 boolean blocked = AdBlockBridge.nativeShouldBlock(urlString, sourceUrl, reqType);
                 if (blocked) {
-                    Log.d(TAG, "Brave adblock blocked: " + urlString);
-                    return true;
+                    Log.d(TAG, "Brave adblock blocked: " + urlString + " [type=" + reqType + "]");
+                    return createSafeBlockedResponse(reqType, urlString);
                 }
             } catch (Throwable t) {
                 Log.w(TAG, "Native adblock check failed: " + t.getMessage());
@@ -155,10 +238,126 @@ public class AdBlockEngine {
         for (String blockedHost : FALLBACK_BLOCKED_HOST_SUFFIXES) {
             if (host.equals(blockedHost) || host.endsWith("." + blockedHost)) {
                 Log.d(TAG, "Fallback blocked ad request: " + urlString);
-                return true;
+                return createSafeBlockedResponse(reqType, urlString);
             }
         }
 
-        return false;
+        return AdBlockDecision.allowed();
+    }
+
+    private AdBlockDecision createSafeBlockedResponse(String reqType, String urlString) {
+        String lower = urlString.toLowerCase();
+        if ("script".equals(reqType) || lower.endsWith(".js") || lower.contains("/js/")) {
+            return AdBlockDecision.blocked("application/javascript", MOCK_NOOP_JS);
+        }
+        if ("image".equals(reqType) || lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".gif") || lower.endsWith(".webp")) {
+            return AdBlockDecision.blocked("image/png", TRANSPARENT_1X1_PNG);
+        }
+        if ("media".equals(reqType)) {
+            return AdBlockDecision.blocked("audio/mp4", EMPTY_BYTES);
+        }
+        return AdBlockDecision.blocked("text/plain", EMPTY_BYTES);
+    }
+
+    public boolean shouldBlock(WebResourceRequest request) {
+        return evaluateRequest(request).isBlocked;
+    }
+
+    public boolean shouldBlock(String urlString) {
+        return evaluateRequest(urlString, "https://app.bujuu.tv", "other").isBlocked;
+    }
+
+    /**
+     * Injects anti-adblock bypass scriptlets and mock telemetry objects early before page scripts execute.
+     */
+    public void injectEarlyScriptlets(WebView webView, String url) {
+        if (webView == null || url == null) return;
+
+        try {
+            String nativeScriptlet = "";
+            if (AdBlockBridge.isLibraryLoaded() && initialized) {
+                try {
+                    nativeScriptlet = AdBlockBridge.nativeGetScriptlet(url);
+                } catch (Throwable ignored) {}
+            }
+
+            String js = "(function() {\n" +
+                    "  try {\n" +
+                    "    window.canRunAds = true;\n" +
+                    "    window.isAdBlockActive = false;\n" +
+                    "    window.adblock = false;\n" +
+                    "    window.google_ad_client = null;\n" +
+                    "    window.google_ad_status = 1;\n" +
+                    "    window.adsbygoogle = window.adsbygoogle || [];\n" +
+                    "    window.adsbygoogle.loaded = true;\n" +
+                    "    // Overwrite popup triggers\n" +
+                    "    var _origOpen = window.open;\n" +
+                    "    window.open = function(u) {\n" +
+                    "      if (u && typeof u === 'string') {\n" +
+                    "        var l = u.toLowerCase();\n" +
+                    "        if (l.indexOf('popads') !== -1 || l.indexOf('adsterra') || l.indexOf('exoclick') || l.indexOf('propeller') || l.indexOf('clickadu')) {\n" +
+                    "          console.log('[BUJUU AdBlock] Blocked popup: ' + u);\n" +
+                    "          return null;\n" +
+                    "        }\n" +
+                    "      }\n" +
+                    "      return _origOpen ? _origOpen.apply(this, arguments) : null;\n" +
+                    "    };\n" +
+                    (nativeScriptlet != null && !nativeScriptlet.isEmpty() ? nativeScriptlet + "\n" : "") +
+                    "  } catch(e) {}\n" +
+                    "})();";
+
+            webView.evaluateJavascript(js, null);
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to inject early scriptlets: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Injects cosmetic DOM hiding CSS and starts continuous client MutationObserver.
+     */
+    public void injectCosmeticHiding(WebView webView, String url) {
+        if (webView == null || url == null) return;
+
+        try {
+            String js = "(function() {\n" +
+                    "  try {\n" +
+                    "    var id = 'bujuu-adblock-cosmetic';\n" +
+                    "    if (document.getElementById(id)) return;\n" +
+                    "    var st = document.createElement('style');\n" +
+                    "    st.id = id;\n" +
+                    "    st.type = 'text/css';\n" +
+                    "    st.textContent = '.ad, .ads, .ad-banner, .advertisement, [id^=\"ad_\"], [class*=\"sponsored\"], [class*=\"banner-ad\"], [id*=\"google_ads\"], iframe[src*=\"doubleclick\"], iframe[src*=\"adsterra\"], iframe[src*=\"popads\"], iframe[src*=\"exoclick\"], iframe[src*=\"monetag\"], .video-ad-overlay, .vpaid-ad, .preroll-ad, [class*=\"ad-container\"], [id*=\"ad-container\"], [class*=\"popup-ad\"], .floating-ad { display: none !important; visibility: hidden !important; height: 0 !important; width: 0 !important; opacity: 0 !important; pointer-events: none !important; }';\n" +
+                    "    (document.head || document.documentElement).appendChild(st);\n" +
+                    "\n" +
+                    "    // Continuous MutationObserver to eliminate dynamically injected ad tags\n" +
+                    "    var obs = new MutationObserver(function(muts) {\n" +
+                    "      for (var i = 0; i < muts.length; i++) {\n" +
+                    "        var added = muts[i].addedNodes;\n" +
+                    "        for (var j = 0; j < added.length; j++) {\n" +
+                    "          var n = added[j];\n" +
+                    "          if (n.nodeType === 1) {\n" +
+                    "            var tag = n.tagName ? n.tagName.toLowerCase() : '';\n" +
+                    "            if (tag === 'script' || tag === 'iframe') {\n" +
+                    "              var src = n.src ? n.src.toLowerCase() : '';\n" +
+                    "              if (src.indexOf('popads') !== -1 || src.indexOf('adsterra') !== -1 || src.indexOf('exoclick') !== -1 || src.indexOf('propeller') !== -1 || src.indexOf('monetag') !== -1) {\n" +
+                    "                n.remove();\n" +
+                    "                continue;\n" +
+                    "              }\n" +
+                    "            }\n" +
+                    "            if (n.matches && n.matches('.ad, .ads, [class*=\"sponsored\"], [id^=\"ad_\"], .video-ad-overlay, [class*=\"banner-ad\"]')) {\n" +
+                    "              n.style.setProperty('display', 'none', 'important');\n" +
+                    "            }\n" +
+                    "          }\n" +
+                    "        }\n" +
+                    "      }\n" +
+                    "    });\n" +
+                    "    obs.observe(document.documentElement, { childList: true, subtree: true });\n" +
+                    "  } catch(e) {}\n" +
+                    "})();";
+
+            webView.evaluateJavascript(js, null);
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to inject cosmetic hiding: " + t.getMessage());
+        }
     }
 }

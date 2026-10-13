@@ -19,6 +19,8 @@ import appCss from "../styles.css?url";
 import { Toaster } from "../components/ui/sonner";
 import { Splash } from "../components/Splash";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { initClientAdBlock } from "@/lib/adblock-client";
+import { rememberReferral } from "@/hooks/use-account";
 
 function NotFoundComponent() {
   return (
@@ -124,13 +126,29 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
 
+  // Initialize Brave-grade client adblock & privacy protection
+  useEffect(() => {
+    initClientAdBlock();
+  }, []);
+
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
     async function handleUrl(urlString: string) {
-      if (!urlString || !urlString.startsWith("bujuu://auth/callback")) return;
+      if (!urlString) return;
       if (processedDeepLinks.has(urlString)) return;
       processedDeepLinks.add(urlString);
+
+      // Handle referral deep link: bujuu://r/:code or /r/:code
+      const rMatch = urlString.match(/(?:bujuu:\/\/r\/|\/r\/)([A-Za-z0-9]{3,16})/i);
+      if (rMatch && rMatch[1]) {
+        const refCode = rMatch[1].toUpperCase();
+        rememberReferral(refCode);
+        toast.success(`Referral code ${refCode} attached!`);
+        return;
+      }
+
+      if (!urlString.startsWith("bujuu://auth/callback")) return;
 
       try {
         await Browser.close().catch(() => {});

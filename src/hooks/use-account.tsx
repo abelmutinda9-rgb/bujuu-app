@@ -11,7 +11,26 @@ const REF_KEY = "bujuu.ref";
 
 export function rememberReferral(code: string) {
   try {
-    localStorage.setItem(REF_KEY, code);
+    const clean = code.trim().toUpperCase();
+    if (/^[A-Za-z0-9]{3,16}$/.test(clean)) {
+      localStorage.setItem(REF_KEY, clean);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function getPendingReferral(): string | null {
+  try {
+    return localStorage.getItem(REF_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingReferral() {
+  try {
+    localStorage.removeItem(REF_KEY);
   } catch {
     /* ignore */
   }
@@ -52,35 +71,19 @@ export function useSession() {
   return { session, ready };
 }
 
-/** Direct Supabase client query for subscriber and subscription status */
+/**
+ * Direct authoritative Supabase query for subscriber and subscription status.
+ * Never trusts or checks client-editable localStorage.
+ */
 async function fetchClientAccountState(userId: string): Promise<AccountState> {
-  // Check local verified subscription first
   try {
-    const localRaw = localStorage.getItem(`bujuu_sub_${userId}`);
-    if (localRaw) {
-      const local = JSON.parse(localRaw);
-      if (local && local.expiresAt && new Date(local.expiresAt).getTime() > Date.now()) {
-        return {
-          status: "ACTIVE",
-          isPremium: true,
-          phone: local.phone || null,
-          expiresAt: local.expiresAt,
-          autoRenew: false,
-          deviceAuthorized: true,
-          subscriberId: local.subscriberId || "local",
-        };
-      }
-    }
-  } catch {}
-
-  try {
-    const { data: subscriber } = await supabase
+    const { data: subscriber, error: subError } = await supabase
       .from("subscribers")
       .select("id, phone")
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (!subscriber) {
+    if (subError || !subscriber) {
       return {
         status: "NO_SUBSCRIPTION",
         isPremium: false,
@@ -92,7 +95,7 @@ async function fetchClientAccountState(userId: string): Promise<AccountState> {
       };
     }
 
-    const { data: sub } = await supabase
+    const { data: sub, error: subsError } = await supabase
       .from("subscriptions")
       .select("expires_at, status, auto_renew")
       .eq("subscriber_id", subscriber.id)
@@ -100,7 +103,7 @@ async function fetchClientAccountState(userId: string): Promise<AccountState> {
       .limit(1)
       .maybeSingle();
 
-    if (!sub) {
+    if (subsError || !sub) {
       return {
         status: "NO_SUBSCRIPTION",
         isPremium: false,
@@ -123,7 +126,7 @@ async function fetchClientAccountState(userId: string): Promise<AccountState> {
       subscriberId: subscriber.id,
     };
   } catch (err) {
-    console.warn("Client fallback accountState failed:", err);
+    console.warn("Client Supabase accountState query error:", err);
     return {
       status: "NO_SUBSCRIPTION",
       isPremium: false,
@@ -137,8 +140,8 @@ async function fetchClientAccountState(userId: string): Promise<AccountState> {
 }
 
 /**
- * Account + subscription + device state. Works seamlessly even when remote
- * server functions are offline or during static client-side APK execution.
+ * Account + subscription + device state. Works seamlessly across server functions
+ * and direct authoritative Supabase queries without insecure local fallbacks.
  */
 export function useAccount() {
   const { session, ready: sessionReady } = useSession();
@@ -155,18 +158,20 @@ export function useAccount() {
       const platform = navigator.userAgent.slice(0, 120);
       try {
         const state = await syncAccount({ data: { ...creds!, platform } });
-        try {
-          const code = localStorage.getItem(REF_KEY);
-          if (code) {
-            await applyReferral({ data: { code } }).catch(() => undefined);
-            localStorage.removeItem(REF_KEY);
+        const code = getPendingReferral();
+        if (code) {
+          try {
+            const res = await applyReferral({ data: { code } });
+            if (res.ok) {
+              clearPendingReferral();
+            }
+          } catch {
+            /* ignore network hiccups */
           }
-        } catch {
-          /* ignore */
         }
         return state;
       } catch (err) {
-        console.warn("syncAccount remote function failed; using direct Supabase fallback:", err);
+        console.warn("syncAccount remote function failed; using authoritative Supabase queries:", err);
         return await fetchClientAccountState(userId!);
       }
     },
