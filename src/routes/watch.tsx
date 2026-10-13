@@ -167,6 +167,7 @@ function Watch() {
           title="bujuu player"
           allow="autoplay; fullscreen; encrypted-media; picture-in-picture; screen-wake-lock"
           allowFullScreen
+          sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" 
           onLoad={() => setLoaded(true)}
           onError={() => setServer((s) => (s < SERVER_COUNT - 1 ? s + 1 : s))}
           className={`absolute inset-0 h-full w-full border-0 transition-opacity duration-500 ${

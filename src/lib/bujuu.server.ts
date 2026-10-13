@@ -163,22 +163,29 @@ export async function resolveAccess(creds: DeviceCreds | null): Promise<
 }
 
 /** Creates (or extends) a one-month subscription for a phone and binds a device to it. */
-export async function grantSubscription(phone: string, deviceId: string | null) {
+export async function grantSubscription(
+  phone: string,
+  deviceId: string | null,
+  userId?: string | null,
+) {
   const db = await admin();
   const { data: existing } = await db
     .from("subscribers")
-    .select("id")
+    .select("id, user_id")
     .eq("phone", phone)
     .maybeSingle();
+
   let subscriberId = existing?.id ?? null;
   if (!subscriberId) {
     const { data: created, error } = await db
       .from("subscribers")
-      .insert({ phone })
+      .insert({ phone, user_id: userId ?? null })
       .select("id")
       .single();
     if (error) throw error;
     subscriberId = created.id;
+  } else if (userId && !existing?.user_id) {
+    await db.from("subscribers").update({ user_id: userId }).eq("id", subscriberId);
   }
 
   const { data: current } = await db
@@ -211,6 +218,8 @@ export async function grantSubscription(phone: string, deviceId: string | null) 
     await db.from("subscriptions").insert({
       subscriber_id: subscriberId,
       expires_at: expiresAt,
+      status: "active",
+      auto_renew: true,
       last_charge_attempt_at: new Date().toISOString(),
     });
   }
@@ -246,11 +255,10 @@ export async function bindDevice(subscriberId: string, deviceId: string) {
 const PAYHERO_URL = "https://backend.payhero.co.ke/api/v2/payments";
 
 export function payheroConfigured() {
-  return Boolean(
-    process.env["PAYHERO_API_USERNAME"] &&
-      process.env["PAYHERO_API_PASSWORD"] &&
-      process.env["PAYHERO_CHANNEL_ID"],
-  );
+  const username = process.env["PAYHERO_API_USERNAME"] || "Fwn62pjQ6lqCzqeExV9h";
+  const password = process.env["PAYHERO_API_PASSWORD"] || "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb";
+  const channelId = process.env["PAYHERO_CHANNEL_ID"] || "12608";
+  return Boolean(username && password && channelId);
 }
 
 export async function payheroStkPush(args: {
@@ -264,13 +272,21 @@ export async function payheroStkPush(args: {
   const channelId = process.env["PAYHERO_CHANNEL_ID"] || "12608";
   if (!username || !password || !channelId) throw new Error("Payments are not configured yet.");
 
+  // PayHero requires 10-digit national format (e.g. 0787677676); 254... results in HTTP 400
+  let payheroPhone = args.phone;
+  if (payheroPhone.startsWith("254")) {
+    payheroPhone = `0${payheroPhone.slice(3)}`;
+  } else if (!payheroPhone.startsWith("0")) {
+    payheroPhone = `0${payheroPhone}`;
+  }
+
   const auth = btoa(`${username}:${password}`);
   const res = await fetch(PAYHERO_URL, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Basic ${auth}` },
     body: JSON.stringify({
       amount: args.amount,
-      phone_number: args.phone,
+      phone_number: payheroPhone,
       channel_id: Number(channelId),
       provider: "m-pesa",
       external_reference: args.reference,
@@ -292,11 +308,17 @@ export async function payheroStkPush(args: {
 }
 
 export function siteOrigin(): string {
-  const explicit = process.env["PUBLIC_SITE_URL"];
+  const explicit =
+    process.env["PUBLIC_SITE_URL"] ||
+    process.env["VITE_PUBLIC_SITE_URL"] ||
+    process.env["VITE_BACKEND_URL"];
   if (explicit) return explicit.replace(/\/$/, "");
   const host = getRequestHeader("x-forwarded-host") ?? getRequestHeader("host");
   const proto = getRequestHeader("x-forwarded-proto") ?? "https";
-  return host ? `${proto}://${host}` : "";
+  if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("capacitor")) {
+    return `${proto}://${host}`;
+  }
+  return "https://buuju.lovable.app";
 }
 
 /** Independently confirms a payment with PayHero (never trust the callback body alone). */

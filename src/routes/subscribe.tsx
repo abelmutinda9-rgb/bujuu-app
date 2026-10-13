@@ -12,7 +12,7 @@ import { useAccount, useSession } from "@/hooks/use-account";
 import { supabase } from "@/integrations/supabase/client";
 import { GoogleButton } from "@/components/GoogleButton";
 import { transferDevice } from "@/lib/account.functions";
-import { checkPaymentStatus, normalizeKenyanPhone, requestStkPush } from "@/services/payhero";
+import { startPayment, verifyAndActivatePayment } from "@/lib/bujuu.functions";
 
 export const Route = createFileRoute("/subscribe")({
   validateSearch: z.object({ redirect: z.string().optional() }),
@@ -40,6 +40,20 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong. Please try again.";
 }
 
+function normalizeInputPhone(input: string): string {
+  const digits = (input ?? "").replace(/\D/g, "");
+  let n = digits;
+  if (n.startsWith("2540")) n = `0${n.slice(4)}`;
+  else if (n.startsWith("254")) n = `0${n.slice(3)}`;
+  else if (n.startsWith("7") || n.startsWith("1")) n = `0${n}`;
+  else if (!n.startsWith("0")) n = `0${n}`;
+
+  if (!/^0(7|1)\d{8}$/.test(n)) {
+    throw new Error("Enter a valid Safaricom or Airtel number (e.g. 0712345678 or 0112345678)");
+  }
+  return n;
+}
+
 function TransferCard({ email, onDone }: { email: string; onDone: () => void }) {
   const { creds } = useAccount();
   const [sent, setSent] = useState(false);
@@ -63,7 +77,9 @@ function TransferCard({ email, onDone }: { email: string; onDone: () => void }) 
     try {
       const { error } = await supabase.auth.verifyOtp({ email, token: code.trim(), type: "email" });
       if (error) throw new Error("That code is wrong or has expired.");
-      await transferDevice({ data: { ...creds!, platform: navigator.userAgent.slice(0, 120) } });
+      if (creds?.deviceId && creds?.deviceSecret) {
+        await transferDevice({ data: { deviceId: creds.deviceId, deviceSecret: creds.deviceSecret, platform: navigator.userAgent.slice(0, 120) } });
+      }
       toast.success("This device can now watch. The other device has been signed out of playback.");
       onDone();
     } catch (e) {
@@ -100,7 +116,7 @@ function SubscribePage() {
   const { redirect } = useSearch({ from: "/subscribe" });
   const navigate = useNavigate();
   const { session } = useSession();
-  const { signedIn, email, state, isPremium, needsTransfer, loading, refresh } = useAccount();
+  const { signedIn, email, state, isPremium, needsTransfer, loading, refresh, creds } = useAccount();
 
   const [phone, setPhone] = useState("");
   const [reference, setReference] = useState<string | null>(null);
@@ -116,8 +132,15 @@ function SubscribePage() {
 
   const pay = useMutation({
     mutationFn: async () => {
-      const cleanPhone = normalizeKenyanPhone(phone);
-      return await requestStkPush({ phone: cleanPhone, userId: session?.user?.id });
+      const cleanPhone = normalizeInputPhone(phone);
+      return await startPayment({
+        data: {
+          phone: cleanPhone,
+          userId: session?.user?.id ?? null,
+          deviceId: creds?.deviceId ?? null,
+          deviceSecret: creds?.deviceSecret ?? null,
+        },
+      });
     },
     onSuccess: (data) => {
       setReference(data.reference);
@@ -127,7 +150,7 @@ function SubscribePage() {
     onError: (error) => toast.error(errorText(error)),
   });
 
-  // Poll PayHero directly until payment succeeds or fails
+  // Poll server-side verification until payment succeeds or fails
   useEffect(() => {
     if (!waiting || !reference) return;
     let cancelled = false;
@@ -136,7 +159,14 @@ function SubscribePage() {
     const tick = async () => {
       if (cancelled) return;
       try {
-        const result = await checkPaymentStatus(reference);
+        const result = await verifyAndActivatePayment({
+          data: {
+            reference,
+            userId: session?.user?.id ?? null,
+            deviceId: creds?.deviceId ?? null,
+          },
+        });
+
         if (result.status === "SUCCESS") {
           setWaiting(false);
           refresh();
@@ -171,7 +201,7 @@ function SubscribePage() {
       cancelled = true;
       window.clearTimeout(id);
     };
-  }, [waiting, reference, session, refresh, redirect, navigate, phone]);
+  }, [waiting, reference, session, refresh, redirect, navigate, phone, creds]);
 
   return (
     <AppShell>

@@ -20,7 +20,7 @@ const playbackSchema = credsSchema.extend({
 
 /** Creates a fresh device identity. Called once per browser/TV. */
 export const registerDevice = createServerFn({ method: "POST" })
-  .inputValidator((input: { label?: string } | undefined) =>
+  .validator((input: { label?: string } | undefined) =>
     z.object({ label: z.string().max(80).optional() }).parse(input ?? {}),
   )
   .handler(async ({ data }) => {
@@ -44,7 +44,7 @@ export const registerDevice = createServerFn({ method: "POST" })
 
 /** Current subscription state for a device. Safe to poll. */
 export const getAccess = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => credsSchema.parse(input))
+  .validator((input: unknown) => credsSchema.parse(input))
   .handler(async ({ data }) => {
     const { resolveAccess } = await import("@/lib/bujuu.server");
     const state = await resolveAccess(data);
@@ -59,7 +59,7 @@ export const getAccess = createServerFn({ method: "POST" })
 
 /** Stops automatic monthly charges. The paid month keeps running. */
 export const cancelRenewal = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => credsSchema.parse(input))
+  .validator((input: unknown) => credsSchema.parse(input))
   .handler(async ({ data }) => {
     const { resolveAccess, cancelAutoRenew, audit } = await import("@/lib/bujuu.server");
     const state = await resolveAccess(data);
@@ -69,10 +69,17 @@ export const cancelRenewal = createServerFn({ method: "POST" })
     return { autoRenew: false, expiresAt: state.expiresAt };
   });
 
-/** Starts an M-Pesa STK push for the KSh 90 / 30-day plan. */
+/** Starts an M-Pesa STK push for the KSh 150 / 30-day plan. */
 export const startPayment = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
-    credsSchema.extend({ phone: z.string().min(9).max(20) }).parse(input),
+  .validator((input: unknown) =>
+    z
+      .object({
+        phone: z.string().min(9).max(20),
+        deviceId: z.string().uuid().optional().nullable(),
+        deviceSecret: z.string().min(16).optional().nullable(),
+        userId: z.string().uuid().optional().nullable(),
+      })
+      .parse(input),
   )
   .handler(async ({ data }) => {
     const {
@@ -90,21 +97,49 @@ export const startPayment = createServerFn({ method: "POST" })
     } = await import("@/lib/bujuu.server");
 
     const phone = normalizePhone(data.phone);
-    await rateLimit("pay_start_ip", clientIp(), 10, 900);
-    await rateLimit("pay_start_phone", phone, 5, 900);
+    await rateLimit("pay_start_ip", clientIp(), 15, 900);
+    await rateLimit("pay_start_phone", phone, 8, 900);
 
-    const device = await resolveAccess(data);
-    if (!device.deviceRow) throw new Error("This device is not recognised. Please reload the app.");
     if (!payheroConfigured()) throw new Error("Payments are not configured yet.");
+
+    let deviceId: string | null = null;
+    if (data.deviceId && data.deviceSecret) {
+      try {
+        const device = await resolveAccess({ deviceId: data.deviceId, deviceSecret: data.deviceSecret });
+        deviceId = device.deviceRow?.id ?? null;
+      } catch {}
+    }
 
     const reference = `bujuu-${randomToken(8)}`;
     const db = await admin();
+
+    // Check or link subscriber
+    const { data: existingSub } = await db
+      .from("subscribers")
+      .select("id, user_id")
+      .eq("phone", phone)
+      .maybeSingle();
+
+    let subscriberId = existingSub?.id ?? null;
+    if (!subscriberId && data.userId) {
+      const { data: newSub } = await db
+        .from("subscribers")
+        .insert({ phone, user_id: data.userId })
+        .select("id")
+        .maybeSingle();
+      subscriberId = newSub?.id ?? null;
+    } else if (existingSub && data.userId && !existingSub.user_id) {
+      await db.from("subscribers").update({ user_id: data.userId }).eq("id", existingSub.id);
+    }
+
     const { error } = await db.from("payments").insert({
       reference,
       phone,
       amount: PLAN_AMOUNT,
       status: "pending",
-      device_id: device.deviceRow.id,
+      device_id: deviceId,
+      subscriber_id: subscriberId,
+      user_id: data.userId ?? null,
     });
     if (error) throw new Error("Could not start the payment. Please try again.");
 
@@ -128,13 +163,124 @@ export const startPayment = createServerFn({ method: "POST" })
       throw e;
     }
 
-    await audit("payment_started", { reference, phone }, { deviceId: device.deviceRow.id });
+    await audit("payment_started", { reference, phone }, { deviceId, subscriberId });
     return { reference };
+  });
+
+/**
+ * Polls and authoritatively confirms a payment with PayHero.
+ * When PayHero confirms payment success, immediately grants subscription
+ * in Supabase and qualifies any active referral.
+ */
+export const verifyAndActivatePayment = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        reference: z.string().min(4),
+        userId: z.string().uuid().optional().nullable(),
+        deviceId: z.string().optional().nullable(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    const {
+      admin,
+      audit,
+      grantSubscription,
+      payheroTransactionStatus,
+      PLAN_AMOUNT,
+    } = await import("@/lib/bujuu.server");
+
+    const db = await admin();
+    const { data: payment } = await db
+      .from("payments")
+      .select("id, status, applied_at, phone, device_id, provider_reference, amount, user_id, reference")
+      .eq("reference", data.reference)
+      .maybeSingle();
+
+    if (!payment) {
+      return { status: "NOT_FOUND", isPremium: false };
+    }
+
+    // Already applied and confirmed
+    if (payment.status === "success" && payment.applied_at) {
+      return { status: "SUCCESS", isPremium: true };
+    }
+
+    // Marked failed
+    if (payment.status === "failed") {
+      return { status: "FAILED", isPremium: false };
+    }
+
+    // Query PayHero status directly from backend
+    const providerRef = payment.provider_reference || payment.reference;
+    try {
+      const check = await payheroTransactionStatus(providerRef);
+      const verified = check.status;
+
+      if (verified === "SUCCESS") {
+        // Claim payment atomically so it only applies once
+        const { data: claimed } = await db
+          .from("payments")
+          .update({ applied_at: new Date().toISOString() })
+          .eq("id", payment.id)
+          .is("applied_at", null)
+          .select("id");
+
+        if (claimed && claimed.length > 0) {
+          const effectiveUserId = payment.user_id || data.userId || null;
+          const effectiveDeviceId = payment.device_id || data.deviceId || null;
+
+          const { subscriberId, expiresAt } = await grantSubscription(
+            payment.phone,
+            effectiveDeviceId,
+            effectiveUserId,
+          );
+
+          await db
+            .from("payments")
+            .update({
+              status: "success",
+              subscriber_id: subscriberId,
+              user_id: effectiveUserId,
+            })
+            .eq("id", payment.id);
+
+          const { qualifyReferral } = await import("@/lib/referral.server");
+          await qualifyReferral(effectiveUserId, payment.id).catch(() => undefined);
+
+          const { notify } = await import("@/lib/notify.server");
+          await notify(effectiveUserId, {
+            kind: "payment_confirmed",
+            title: "Payment confirmed",
+            body: `KSh ${PLAN_AMOUNT} received. Access active until ${new Date(expiresAt).toLocaleDateString("en-KE")}.`,
+            dedupeKey: `payment:${payment.id}`,
+          });
+
+          await audit(
+            "payment_verified_polling",
+            { reference: payment.reference, expiresAt },
+            { subscriberId, deviceId: effectiveDeviceId },
+          );
+        }
+
+        return { status: "SUCCESS", isPremium: true };
+      }
+
+      if (verified === "FAILED" || verified === "CANCELLED") {
+        await db.from("payments").update({ status: "failed" }).eq("id", payment.id);
+        return { status: "FAILED", isPremium: false };
+      }
+    } catch (err) {
+      console.warn("PayHero status check error in polling:", err);
+    }
+
+    return { status: "PENDING", isPremium: false };
   });
 
 /** Poll a payment until it lands. Also returns the resulting access state. */
 export const paymentStatus = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => credsSchema.extend({ reference: z.string().min(4) }).parse(input))
+  .validator((input: unknown) => credsSchema.extend({ reference: z.string().min(4) }).parse(input))
   .handler(async ({ data }) => {
     const { admin, resolveAccess } = await import("@/lib/bujuu.server");
     const device = await resolveAccess(data);
@@ -161,7 +307,7 @@ export const paymentStatus = createServerFn({ method: "POST" })
  * Rate limited and audited; the previous device is revoked immediately.
  */
 export const claimSubscription = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     credsSchema.extend({ phone: z.string().min(9).max(20) }).parse(input),
   )
   .handler(async ({ data }) => {
@@ -206,7 +352,7 @@ export const claimSubscription = createServerFn({ method: "POST" })
 
 /** The playback gate: the stream address is only built after access is verified. */
 export const getPlaybackSource = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => playbackSchema.parse(input))
+  .validator((input: unknown) => playbackSchema.parse(input))
   .handler(async ({ data }) => {
     const { resolveAccess, rateLimit, clientIp, audit } = await import("@/lib/bujuu.server");
     const { embedUrl, SERVER_COUNT } = await import("@/services/embeds");

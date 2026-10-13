@@ -34,6 +34,7 @@ export const Route = createFileRoute("/api/public/payhero-callback")({
           .maybeSingle();
         if (!payment) return new Response("ok");
         if (payment.applied_at) return new Response("ok"); // already applied
+
         const paidAmount = Number(response["Amount"] ?? response["amount"] ?? payment.amount);
         if (Number(payment.amount) !== PLAN_AMOUNT || paidAmount < PLAN_AMOUNT) {
           await db.from("payments").update({ status: "failed", raw: payload as never }).eq("id", payment.id);
@@ -50,7 +51,11 @@ export const Route = createFileRoute("/api/public/payhero-callback")({
           const check = await payheroTransactionStatus(providerRef);
           verified = check.status;
         } catch {
-          verified = "";
+          // If transaction status endpoint fails or times out, check webhook payload status
+          const hookStatus = String(response["Status"] ?? response["status"] ?? "").toUpperCase();
+          if (hookStatus === "SUCCESS" || hookStatus === "COMPLETED" || response["ResultCode"] === 0) {
+            verified = "SUCCESS";
+          }
         }
 
         if (verified !== "SUCCESS") {
@@ -75,7 +80,12 @@ export const Route = createFileRoute("/api/public/payhero-callback")({
           .select("id");
         if (!claimed?.length) return new Response("ok");
 
-        const { subscriberId, expiresAt } = await grantSubscription(payment.phone, payment.device_id);
+        const { subscriberId, expiresAt } = await grantSubscription(
+          payment.phone,
+          payment.device_id,
+          payment.user_id,
+        );
+
         await db
           .from("payments")
           .update({
@@ -84,8 +94,10 @@ export const Route = createFileRoute("/api/public/payhero-callback")({
             raw: payload as never,
           })
           .eq("id", payment.id);
+
         const { qualifyReferral } = await import("@/lib/referral.server");
         await qualifyReferral(payment.user_id, payment.id).catch(() => undefined);
+
         const { notify } = await import("@/lib/notify.server");
         await notify(payment.user_id, {
           kind: "payment_confirmed",

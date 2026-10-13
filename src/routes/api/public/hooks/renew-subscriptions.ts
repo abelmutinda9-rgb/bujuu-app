@@ -117,7 +117,7 @@ export const Route = createFileRoute("/api/public/hooks/renew-subscriptions")({
           if (!claimed) continue;
 
           const [{ data: subscriber }, { data: device }] = await Promise.all([
-            db.from("subscribers").select("phone").eq("id", sub.subscriber_id).maybeSingle(),
+            db.from("subscribers").select("phone, user_id").eq("id", sub.subscriber_id).maybeSingle(),
             db
               .from("devices")
               .select("id")
@@ -137,6 +137,7 @@ export const Route = createFileRoute("/api/public/hooks/renew-subscriptions")({
             status: "pending",
             device_id: device?.id ?? null,
             subscriber_id: sub.subscriber_id,
+            user_id: subscriber.user_id ?? null,
           });
 
           try {

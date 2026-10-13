@@ -1,14 +1,8 @@
 /**
- * PayHero Kenya M-Pesa integration for BUJUU
+ * PayHero Kenya phone formatting and display helpers.
+ * Payment execution and verification is strictly handled server-side in
+ * src/lib/bujuu.server.ts and src/lib/bujuu.functions.ts.
  */
-
-export const PAYHERO_API_USERNAME =
-  (import.meta as any).env?.VITE_PAYHERO_API_USERNAME || "Fwn62pjQ6lqCzqeExV9h";
-export const PAYHERO_API_PASSWORD =
-  (import.meta as any).env?.VITE_PAYHERO_API_PASSWORD || "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb";
-export const PAYHERO_CHANNEL_ID = Number(
-  (import.meta as any).env?.VITE_PAYHERO_CHANNEL_ID || 12608
-);
 
 export const PLAN_AMOUNT = 150;
 
@@ -37,92 +31,4 @@ export function formatPhoneDisplay(phone: string): string {
   } catch {
     return phone;
   }
-}
-
-export interface PayHeroStkResponse {
-  success: boolean;
-  status: string;
-  reference: string;
-  CheckoutRequestID?: string;
-  external_reference?: string;
-}
-
-export async function requestStkPush(params: {
-  phone: string;
-  userId?: string;
-}): Promise<PayHeroStkResponse> {
-  const phone = normalizeKenyanPhone(params.phone);
-  const ref = `bujuu_${params.userId?.slice(0, 8) || "guest"}_${Date.now()}`;
-  const auth = btoa(`${PAYHERO_API_USERNAME}:${PAYHERO_API_PASSWORD}`);
-
-  const res = await fetch("https://backend.payhero.co.ke/api/v2/payments", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${auth}`,
-    },
-    body: JSON.stringify({
-      amount: PLAN_AMOUNT,
-      phone_number: phone,
-      channel_id: PAYHERO_CHANNEL_ID,
-      provider: "m-pesa",
-      external_reference: ref,
-    }),
-  });
-
-  const text = await res.text();
-  let data: any;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error("Invalid response from payment provider.");
-  }
-
-  if (!res.ok || (!data.success && data.status !== "QUEUED")) {
-    const msg = data.error_message || data.message || "Failed to start payment. Please check your number and try again.";
-    throw new Error(msg);
-  }
-
-  return {
-    success: true,
-    status: data.status || "QUEUED",
-    reference: data.reference,
-    CheckoutRequestID: data.CheckoutRequestID,
-    external_reference: ref,
-  };
-}
-
-export interface PayHeroStatusResponse {
-  status: "SUCCESS" | "FAILED" | "PENDING";
-  raw: any;
-}
-
-export async function checkPaymentStatus(reference: string): Promise<PayHeroStatusResponse> {
-  const auth = btoa(`${PAYHERO_API_USERNAME}:${PAYHERO_API_PASSWORD}`);
-  const res = await fetch(
-    `https://backend.payhero.co.ke/api/v2/transaction-status?reference=${encodeURIComponent(reference)}`,
-    {
-      headers: {
-        Authorization: `Basic ${auth}`,
-      },
-    }
-  );
-
-  const text = await res.text();
-  let data: any;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    return { status: "PENDING", raw: text };
-  }
-
-  const rawStatus = String(data.status || data.Status || "").toUpperCase();
-  if (rawStatus === "SUCCESS" || rawStatus === "COMPLETED" || rawStatus === "PAID") {
-    return { status: "SUCCESS", raw: data };
-  }
-  if (rawStatus === "FAILED" || rawStatus === "CANCELLED" || rawStatus === "REJECTED") {
-    return { status: "FAILED", raw: data };
-  }
-
-  return { status: "PENDING", raw: data };
 }

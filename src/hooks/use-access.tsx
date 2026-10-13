@@ -41,10 +41,11 @@ export function rememberPhone(phone: string) {
 
 /** Device identity for this browser/TV, created on first use. */
 export function useDevice() {
-  const [creds, setCreds] = useState<DeviceCreds | null>(null);
-  const [ready, setReady] = useState(false);
+  const [creds, setCreds] = useState<DeviceCreds | null>(readCreds);
+  const [ready, setReady] = useState(() => Boolean(readCreds()));
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const init = useCallback(() => {
     let cancelled = false;
     const existing = readCreds();
     if (existing) {
@@ -52,30 +53,21 @@ export function useDevice() {
       setReady(true);
       return;
     }
-    void registerDevice({ data: { label: navigator.userAgent.slice(0, 80) } })
+    registerDevice({ data: { label: navigator.userAgent.slice(0, 80) } })
       .then((next) => {
         if (cancelled) return;
-        localStorage.setItem(KEY, JSON.stringify(next));
-        setCreds(next);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        const fallback: DeviceCreds = {
-          deviceId:
-            typeof crypto !== "undefined" && crypto.randomUUID
-              ? crypto.randomUUID()
-              : `dev_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          deviceSecret:
-            typeof crypto !== "undefined" && crypto.getRandomValues
-              ? Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) =>
-                  b.toString(16).padStart(2, "0")
-                ).join("")
-              : `sec_${Math.random().toString(36).slice(2)}`,
-        };
         try {
-          localStorage.setItem(KEY, JSON.stringify(fallback));
+          localStorage.setItem(KEY, JSON.stringify(next));
         } catch {}
-        setCreds(fallback);
+        setCreds(next);
+        setError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Do not store fake unverified credentials in localStorage, as they will
+        // fail validation on all server endpoints. Allow retry on demand.
+        console.warn("Device registration postponed:", err);
+        setError("Device registration pending");
       })
       .finally(() => {
         if (!cancelled) setReady(true);
@@ -85,7 +77,11 @@ export function useDevice() {
     };
   }, []);
 
-  return { creds, ready };
+  useEffect(() => {
+    return init();
+  }, [init]);
+
+  return { creds, ready, error, retry: init };
 }
 
 /**
