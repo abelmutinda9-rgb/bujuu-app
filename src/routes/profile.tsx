@@ -1,31 +1,41 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { signOutSession } from "@/lib/auth";
-import { CheckCircle2, Gift, Headphones, Instagram, MessageCircle, Phone, ShieldAlert } from "lucide-react";
+import {
+  CheckCircle2,
+  Copy,
+  Gift,
+  Headphones,
+  Instagram,
+  MessageCircle,
+  Phone,
+  Share2,
+  ShieldAlert,
+  Smartphone,
+  Wallet,
+} from "lucide-react";
 import { toast } from "sonner";
+import { useState } from "react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { useAccount, useSession } from "@/hooks/use-account";
-import { supabase } from "@/integrations/supabase/client";
-import { myReferrals } from "@/lib/account.functions";
-import { myWithdrawals, requestReferralWithdrawal } from "@/lib/withdrawal.functions";
-import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { GoogleButton } from "@/components/GoogleButton";
+import { useAccount, useSession } from "@/hooks/use-account";
+import { supabase } from "@/integrations/supabase/client";
+import { normalizeKenyanPhone } from "@/services/payhero";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
       { title: "My Profile — bujuu" },
-      { name: "description", content: "Check your bujuu subscription and manage this device." },
+      { name: "description", content: "Check your bujuu subscription, invite friends, and manage this device." },
       { property: "og:title", content: "My Profile — bujuu" },
       {
         property: "og:description",
-        content: "Check your bujuu subscription and manage this device.",
+        content: "Check your bujuu subscription, invite friends, and manage this device.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -35,8 +45,7 @@ export const Route = createFileRoute("/profile")({
 });
 
 function ProfilePage() {
-  const { signedIn, email, state, isPremium: active, needsTransfer, loading, refresh } = useAccount();
-  const queryClient = useQueryClient();
+  const { signedIn, email, state, isPremium: active, refresh } = useAccount();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
@@ -59,9 +68,16 @@ function ProfilePage() {
         {!signedIn ? (
           <div className="mt-6 space-y-4 rounded-lg border border-border p-6">
             <p className="text-sm text-muted-foreground">
-              Sign in with your Google account to keep your subscription across installs and see your account status.
+              Sign in with your Google account or email to keep your subscription and see your referral earnings.
             </p>
             <GoogleButton />
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => void navigate({ to: "/auth", search: { redirect: "/profile" } })}
+            >
+              Sign in with Email Code
+            </Button>
           </div>
         ) : (
           <div className="mt-6 space-y-6">
@@ -74,7 +90,7 @@ function ProfilePage() {
               <div className="flex-1 min-w-0">
                 <p className="font-semibold truncate">{email}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Signed in with Google
+                  Signed in
                 </p>
               </div>
               <Button variant="outline" size="sm" onClick={handleSignOut}>
@@ -90,7 +106,7 @@ function ProfilePage() {
                     {active ? (
                       <>
                         <CheckCircle2 className="h-4 w-4 text-brand" />
-                        <span className="font-semibold text-brand">Active</span>
+                        <span className="font-semibold text-brand">Active Premium</span>
                       </>
                     ) : (
                       <>
@@ -168,67 +184,98 @@ function ContactSupport() {
   );
 }
 
+interface ReferralStats {
+  code: string;
+  invited: number;
+  paying: number;
+  earned: number;
+  withdrawn: number;
+  available: number;
+  reward: number;
+}
+
+function getStoredReferrals(code: string): any[] {
+  try {
+    const raw = localStorage.getItem(`bujuu_refs_${code}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getStoredWithdrawals(userId: string): any[] {
+  try {
+    const raw = localStorage.getItem(`bujuu_withdrawals_${userId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
 function InviteFriends() {
   const { session } = useSession();
   const userId = session?.user?.id;
 
-  const q = useQuery({
-    queryKey: ["referrals", userId],
+  const q = useQuery<ReferralStats>({
+    queryKey: ["referrals-v2", userId],
     queryFn: async () => {
-      try {
-        return await myReferrals();
-      } catch (err) {
-        // Fallback for native Android or when remote server is unreachable
-        let code = "";
-        if (userId) {
-          try {
-            const { data: codeRow } = await supabase
-              .from("referral_codes")
-              .select("code")
-              .eq("user_id", userId)
-              .maybeSingle();
-            if (codeRow?.code) code = codeRow.code;
-          } catch {}
+      let code = "";
+      if (userId) {
+        try {
+          const { data: codeRow } = await supabase
+            .from("referral_codes")
+            .select("code")
+            .eq("user_id", userId)
+            .maybeSingle();
+          if (codeRow?.code) code = codeRow.code;
+        } catch {}
 
-          if (!code) {
-            code = userId.replace(/-/g, "").slice(0, 8).toUpperCase();
-          }
-        } else {
-          code = "BUJUU";
+        if (!code) {
+          code = userId.replace(/-/g, "").slice(0, 8).toUpperCase();
         }
-
-        let invited = 0;
-        let paying = 0;
-        let earned = 0;
-
-        if (userId) {
-          try {
-            const { data: refs } = await supabase
-              .from("referrals")
-              .select("status")
-              .eq("referrer_id", userId);
-            if (refs) {
-              invited = refs.length;
-              paying = refs.filter((r) => r.status === "qualified").length;
-            }
-          } catch {}
-
-          try {
-            const { data: ledger } = await supabase
-              .from("referral_ledger")
-              .select("amount, kind")
-              .eq("user_id", userId);
-            if (ledger) {
-              earned = ledger.reduce(
-                (acc, l) => acc + (l.kind === "reward" ? l.amount : -l.amount),
-                0
-              );
-            }
-          } catch {}
-        }
-
-        return { code, invited, paying, earned, reward: 30 };
+      } else {
+        code = "BUJUU";
       }
+
+      // Check local stored referrals
+      const localRefs = getStoredReferrals(code);
+      let invited = localRefs.length;
+      let paying = localRefs.filter((r) => r.status === "qualified").length;
+      let earned = paying * 30;
+
+      // Also query Supabase if accessible
+      if (userId) {
+        try {
+          const { data: refs } = await supabase
+            .from("referrals")
+            .select("status")
+            .eq("referrer_id", userId);
+          if (refs && refs.length > 0) {
+            invited = Math.max(invited, refs.length);
+            const dbPaying = refs.filter((r) => r.status === "qualified").length;
+            paying = Math.max(paying, dbPaying);
+            earned = Math.max(earned, paying * 30);
+          }
+        } catch {}
+      }
+
+      // Calculate withdrawals
+      const withdrawals = userId ? getStoredWithdrawals(userId) : [];
+      const withdrawn = withdrawals
+        .filter((w) => w.status === "paid" || w.status === "pending")
+        .reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
+
+      const available = Math.max(0, earned - withdrawn);
+
+      return {
+        code,
+        invited,
+        paying,
+        earned,
+        withdrawn,
+        available,
+        reward: 30,
+      };
     },
   });
 
@@ -236,17 +283,28 @@ function InviteFriends() {
   const baseOrigin = isNative ? "https://lynnn.lovable.app" : window.location.origin;
   const link = q.data?.code ? `${baseOrigin}/r/${q.data.code}` : "";
 
-  const share = async () => {
+  const copyLink = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Invite link copied to clipboard!");
+    } catch {
+      toast.info(link);
+    }
+  };
+
+  const shareLink = async () => {
     if (!link) return;
     if (navigator.share) {
-      await navigator.share({
-        title: "bujuu",
-        text: "Watch unlimited movies on bujuu! Use my link to join:",
-        url: link,
-      }).catch(() => undefined);
+      try {
+        await navigator.share({
+          title: "BUJUU — Unlimited Movies & Shows",
+          text: "Watch unlimited movies and series on BUJUU! Use my referral link to get started:",
+          url: link,
+        });
+      } catch {}
     } else {
-      await navigator.clipboard.writeText(link);
-      toast.success("Invite link copied to clipboard.");
+      await copyLink();
     }
   };
 
@@ -254,105 +312,163 @@ function InviteFriends() {
     <div className="mt-6 max-w-md rounded-lg border border-border p-5">
       <div className="flex items-center gap-2">
         <Gift className="h-5 w-5 text-brand" />
-        <span className="font-semibold">Invite friends</span>
+        <span className="font-semibold">Invite friends & earn</span>
       </div>
       <p className="mt-2 text-sm text-muted-foreground">
-        Earn KSh {q.data?.reward ?? 30} for every friend who subscribes through your link.
+        Earn <strong className="text-foreground">KSh {q.data?.reward ?? 30}</strong> in cash for every friend who subscribes through your link.
       </p>
-      <p className="mt-3 break-all rounded-md bg-secondary px-3 py-2 text-xs">
-        {q.isLoading ? "Loading…" : link ? link : "Invite code available online."}
-      </p>
-      <Button className="mt-3 w-full" variant="secondary" disabled={!link} onClick={share}>
-        Share link
-      </Button>
-      {q.data && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          {q.data.invited} invited · {q.data.paying} subscribed · KSh {q.data.earned} earned
-        </p>
+
+      <div className="mt-3 flex items-center gap-2 rounded-md bg-secondary/80 p-2 text-xs">
+        <span className="flex-1 truncate font-mono">{link || "Loading link…"}</span>
+        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={copyLink} title="Copy link">
+          <Copy className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="mt-3 flex gap-2">
+        <Button className="flex-1" variant="secondary" disabled={!link} onClick={shareLink}>
+          <Share2 className="mr-2 h-4 w-4" /> Share invite link
+        </Button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-2 rounded-lg bg-card/60 p-3 text-center border border-border/50">
+        <div>
+          <p className="text-lg font-bold">{q.data?.invited ?? 0}</p>
+          <p className="text-[11px] text-muted-foreground">Invited</p>
+        </div>
+        <div>
+          <p className="text-lg font-bold text-brand">{q.data?.paying ?? 0}</p>
+          <p className="text-[11px] text-muted-foreground">Subscribed</p>
+        </div>
+        <div>
+          <p className="text-lg font-bold text-green-500">KSh {q.data?.earned ?? 0}</p>
+          <p className="text-[11px] text-muted-foreground">Earned</p>
+        </div>
+      </div>
+
+      {userId && q.data && (
+        <WithdrawSection stats={q.data} userId={userId} />
       )}
-      <Withdraw />
     </div>
   );
 }
 
-const STATUS_LABEL = { pending: "Pending", processing: "Processing", paid: "Paid", failed: "Failed" } as const;
-
-function Withdraw() {
+function WithdrawSection({ stats, userId }: { stats: ReferralStats; userId: string }) {
   const qc = useQueryClient();
-  const fetchW = useServerFn(myWithdrawals);
-  const submit = useServerFn(requestReferralWithdrawal);
-  const q = useQuery({ queryKey: ["withdrawals"], queryFn: () => fetchW() });
   const [open, setOpen] = useState(false);
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
-  const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
-  const d = q.data;
-  if (!d) return null;
-  const eligible = d.available >= d.minimum && !d.inProgress;
+  const eligible = stats.available >= 30;
 
-  const confirm = async () => {
+  const handleWithdraw = async () => {
     if (busy) return;
     setBusy(true);
+
     try {
-      await submit({ data: { phone, requestKey } });
-      toast.success("Withdrawal requested.");
+      const cleanPhone = normalizeKenyanPhone(phone);
+      const withdrawalRecord = {
+        id: `wd_${Date.now()}`,
+        amount: stats.available,
+        phone: cleanPhone,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      };
+
+      const existing = getStoredWithdrawals(userId);
+      existing.unshift(withdrawalRecord);
+      localStorage.setItem(`bujuu_withdrawals_${userId}`, JSON.stringify(existing));
+
+      toast.success("Withdrawal requested! Message support on WhatsApp to receive KSh " + stats.available);
+
+      // Open WhatsApp to support with prefilled message
+      const msg = encodeURIComponent(
+        `Hello BUJUU Support! I have requested a referral withdrawal of KSh ${stats.available} for my account (${userId.slice(0, 8)}) to M-Pesa number ${cleanPhone}. Please disburse.`
+      );
+      window.open(`https://wa.me/254713767370?text=${msg}`, "_blank");
+
       setOpen(false);
-      setRequestKey(crypto.randomUUID());
-      await qc.invalidateQueries({ queryKey: ["withdrawals"] });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not request the withdrawal.");
+      await qc.invalidateQueries({ queryKey: ["referrals-v2"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Invalid phone number.");
     } finally {
       setBusy(false);
     }
   };
 
+  const history = getStoredWithdrawals(userId);
+
   return (
     <div className="mt-5 border-t border-border pt-4">
-      <p className="text-xs text-muted-foreground">Available to withdraw</p>
-      <p className="text-2xl font-bold">KSh {d.available}</p>
-      <p className="text-xs text-muted-foreground">Minimum withdrawal: KSh {d.minimum}</p>
-      <Button className="mt-3 w-full" disabled={!eligible} onClick={() => setOpen(true)}>
-        {d.inProgress ? "Withdrawal in progress" : `Withdraw KSh ${d.available}`}
-      </Button>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground">Available to withdraw</p>
+          <p className="text-xl font-bold text-green-500">KSh {stats.available}</p>
+        </div>
+        <Button
+          size="sm"
+          disabled={!eligible}
+          onClick={() => setOpen(true)}
+          className="bg-brand hover:bg-brand/90"
+        >
+          <Wallet className="mr-1.5 h-4 w-4" /> Withdraw
+        </Button>
+      </div>
 
-      {d.history.length > 0 && (
+      {stats.available < 30 && (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Minimum withdrawal is KSh 30 (1 paying friend).
+        </p>
+      )}
+
+      {history.length > 0 && (
         <div className="mt-4">
-          <p className="text-sm font-semibold">Withdrawal history</p>
-          <ul className="mt-2 space-y-1.5">
-            {d.history.map((h) => (
-              <li key={h.id} className="text-xs">
-                <div className="flex justify-between gap-2">
-                  <span>KSh {h.amount} · {h.phone} · {new Date(h.createdAt).toLocaleDateString()}</span>
-                  <span className={h.status === "paid" ? "text-brand" : h.status === "failed" ? "text-destructive" : "text-muted-foreground"}>
-                    {STATUS_LABEL[h.status]}
-                  </span>
-                </div>
-                {h.failure && <p className="text-muted-foreground">{h.failure}</p>}
-              </li>
+          <p className="text-xs font-semibold text-muted-foreground">Recent withdrawal requests</p>
+          <div className="mt-2 space-y-1.5">
+            {history.slice(0, 3).map((h) => (
+              <div key={h.id} className="flex justify-between items-center text-xs rounded bg-secondary/50 px-2 py-1.5">
+                <span>KSh {h.amount} · {h.phone}</span>
+                <span className="font-medium text-amber-500 capitalize">{h.status}</span>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={(o) => !busy && setOpen(o)}>
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Withdraw referral earnings</DialogTitle>
+            <DialogTitle>Withdraw Referral Earnings</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-4 py-2">
             <div>
-              <p className="text-xs text-muted-foreground">Amount</p>
-              <p className="text-xl font-bold">KSh {d.available}</p>
+              <p className="text-xs text-muted-foreground">Amount to withdraw</p>
+              <p className="text-2xl font-bold text-green-500">KSh {stats.available}</p>
             </div>
             <div>
-              <label htmlFor="wd-phone" className="text-xs text-muted-foreground">M-Pesa number</label>
-              <Input id="wd-phone" inputMode="tel" placeholder="07XXXXXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} />
+              <label htmlFor="wd-phone" className="text-xs font-medium">
+                M-Pesa phone number
+              </label>
+              <div className="mt-1 relative">
+                <Input
+                  id="wd-phone"
+                  inputMode="tel"
+                  placeholder="0712345678"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+                <Smartphone className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Funds will be sent directly to this M-Pesa line.
+              </p>
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="secondary" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
-            <Button disabled={busy || phone.trim().length < 9} onClick={confirm}>
-              {busy ? "Submitting…" : "Confirm withdrawal"}
+            <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={handleWithdraw} disabled={busy || phone.trim().length < 9}>
+              {busy ? "Processing…" : "Confirm Withdrawal"}
             </Button>
           </DialogFooter>
         </DialogContent>

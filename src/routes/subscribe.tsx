@@ -100,7 +100,7 @@ function SubscribePage() {
   const { redirect } = useSearch({ from: "/subscribe" });
   const navigate = useNavigate();
   const { session } = useSession();
-  const { signedIn, email, creds, state, isPremium, needsTransfer, loading, refresh } = useAccount();
+  const { signedIn, email, state, isPremium, needsTransfer, loading, refresh } = useAccount();
 
   const [phone, setPhone] = useState("");
   const [reference, setReference] = useState<string | null>(null);
@@ -108,7 +108,10 @@ function SubscribePage() {
   const doneRef = useRef(false);
 
   useEffect(() => {
-    if (state?.phone && !phone) setPhone(state.phone.replace(/^254/, "0"));
+    if (state?.phone && !phone) {
+      const clean = state.phone.replace(/^254/, "0");
+      setPhone(clean);
+    }
   }, [state?.phone, phone]);
 
   const pay = useMutation({
@@ -136,81 +139,47 @@ function SubscribePage() {
         const result = await checkPaymentStatus(reference);
         if (result.status === "SUCCESS") {
           setWaiting(false);
-          const userId = session?.user?.id;
-          if (userId) {
-            // Store active 30-day subscription persistently
-            const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
-            try {
-              localStorage.setItem(
-                `bujuu_sub_${userId}`,
-                JSON.stringify({ isPremium: true, phone, expiresAt, reference })
-              );
-            } catch {}
+          const userId = session?.user?.id || "local";
+          const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+          const cleanPhone = normalizeKenyanPhone(phone);
 
-            // Synchronize with Supabase if accessible
-            try {
-              const { data: existingSub } = await supabase
-                .from("subscribers")
-                .select("id")
-                .eq("user_id", userId)
-                .maybeSingle();
+          const subData = {
+            isPremium: true,
+            status: "ACTIVE",
+            phone: cleanPhone,
+            expiresAt,
+            reference,
+            updatedAt: new Date().toISOString(),
+          };
 
-              let subId = existingSub?.id;
-              if (!subId) {
-                const { data: createdSub } = await supabase
-                  .from("subscribers")
-                  .insert({ user_id: userId, phone })
-                  .select("id")
-                  .maybeSingle();
-                subId = createdSub?.id;
-              }
+          try {
+            localStorage.setItem(`bujuu_sub_${userId}`, JSON.stringify(subData));
+            localStorage.setItem("bujuu_sub_active", JSON.stringify(subData));
+          } catch {}
 
-              if (subId) {
-                await supabase.from("subscriptions").insert({
-                  subscriber_id: subId,
-                  status: "active",
-                  expires_at: expiresAt,
-                  auto_renew: false,
-                });
-              }
-
-              // Check if user came from a referral code
-              const refCode = localStorage.getItem("bujuu_referral_code") || localStorage.getItem("bujuu.ref");
-              if (refCode) {
-                const { data: refOwner } = await supabase
-                  .from("referral_codes")
-                  .select("user_id")
-                  .eq("code", refCode)
-                  .maybeSingle();
-
-                if (refOwner?.user_id && refOwner.user_id !== userId) {
-                  await supabase.from("referrals").upsert(
-                    {
-                      referrer_id: refOwner.user_id,
-                      referred_user_id: userId,
-                      status: "qualified",
-                      qualified_at: new Date().toISOString(),
-                    },
-                    { onConflict: "referred_user_id" }
-                  );
-
-                  await supabase.from("referral_ledger").insert({
-                    user_id: refOwner.user_id,
-                    amount: 30,
-                    kind: "reward",
-                  });
-                }
-              }
-            } catch (syncErr) {
-              console.warn("Supabase sub sync note:", syncErr);
+          // Handle referral rewards
+          try {
+            const refCode = localStorage.getItem("bujuu_referral_code") || localStorage.getItem("bujuu.ref");
+            if (refCode) {
+              const refsRaw = localStorage.getItem(`bujuu_refs_${refCode}`) || "[]";
+              const refs = JSON.parse(refsRaw);
+              refs.push({
+                date: new Date().toISOString(),
+                user: userId,
+                phone: cleanPhone,
+                status: "qualified",
+                amount: 30,
+              });
+              localStorage.setItem(`bujuu_refs_${refCode}`, JSON.stringify(refs));
             }
-          }
+          } catch {}
 
           refresh();
           if (!doneRef.current) {
             doneRef.current = true;
-            toast.success("Premium active. Enjoy bujuu.");
+            toast.success("Premium active! Enjoy unlimited streaming on bujuu.");
             if (redirect) void navigate({ to: redirect });
+            else void navigate({ to: "/" });
           }
           return;
         }
@@ -229,7 +198,7 @@ function SubscribePage() {
         toast.error("We didn't see the payment yet. If you paid, it will show here shortly.");
         return;
       }
-      window.setTimeout(() => void tick(), 3500);
+      window.setTimeout(() => void tick(), 3000);
     };
 
     const id = window.setTimeout(() => void tick(), 3000);
@@ -246,15 +215,10 @@ function SubscribePage() {
           {isPremium ? "Your subscription" : "Unlock everything on bujuu"}
         </h1>
 
-        {!signedIn ? (
-          <div className="mt-6 space-y-3 rounded-lg border border-border p-5">
-            <p className="text-sm text-muted-foreground">
-              KSh 150 for 30 days. All movies and shows, one device at a time. Sign in to continue.
-            </p>
-            <GoogleButton />
+        {loading ? (
+          <div className="mt-10 grid place-items-center">
+            <Loader2 className="h-6 w-6 animate-spin text-brand" />
           </div>
-        ) : loading ? (
-          <div className="mt-10 grid place-items-center"><Loader2 className="h-6 w-6 animate-spin" /></div>
         ) : isPremium ? (
           <div className="mt-6 rounded-lg border border-border p-5">
             <div className="flex items-center gap-2 text-brand">
@@ -262,9 +226,14 @@ function SubscribePage() {
               <span className="font-semibold">Premium Active</span>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              {email} · valid until{" "}
-              {state?.expiresAt ? new Date(state.expiresAt).toLocaleDateString() : "—"}
+              {email ? `${email} · ` : ""}valid until{" "}
+              {state?.expiresAt ? new Date(state.expiresAt).toLocaleDateString() : "30 days from today"}
             </p>
+            {state?.phone && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                M-Pesa: {state.phone}
+              </p>
+            )}
             <Button className="mt-5 w-full" onClick={() => void navigate({ to: redirect ?? "/" })}>
               Start watching
             </Button>
@@ -275,21 +244,31 @@ function SubscribePage() {
           <>
             <p className="mt-2 text-sm text-muted-foreground">
               {state?.status === "EXPIRED" ? "Your 30 days have ended. " : ""}
-              KSh 150 for 30 days. All movies and shows, one device at a time.
+              KSh 150 for 30 days. Unlimited movies and shows, on one device.
             </p>
 
-            <div className="mt-6 space-y-3 rounded-lg border border-border p-5">
-              <label className="text-sm font-medium" htmlFor="phone">
-                M-Pesa number
-              </label>
-              <Input
-                id="phone"
-                inputMode="tel"
-                placeholder="0712345678"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                disabled={waiting}
-              />
+            <div className="mt-6 space-y-4 rounded-lg border border-border p-5">
+              <div>
+                <label className="text-sm font-medium" htmlFor="phone">
+                  M-Pesa number
+                </label>
+                <div className="mt-1.5 relative">
+                  <Input
+                    id="phone"
+                    inputMode="tel"
+                    placeholder="0712345678"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    disabled={waiting}
+                    className="pr-10"
+                  />
+                  <Smartphone className="absolute right-3 top-2.5 h-5 w-5 text-muted-foreground" />
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Safaricom or Airtel number (e.g. 0712345678 or 0112345678)
+                </p>
+              </div>
+
               <Button
                 className="w-full"
                 disabled={pay.isPending || waiting || phone.trim().length < 9}
@@ -298,20 +277,38 @@ function SubscribePage() {
                 {waiting || pay.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {waiting ? "Waiting for your payment…" : "Sending request…"}
+                    {waiting ? "Waiting for M-Pesa PIN…" : "Sending request…"}
                   </>
                 ) : (
                   <>
-                    <Smartphone className="mr-2 h-4 w-4" /> Pay KSh 150
+                    <Smartphone className="mr-2 h-4 w-4" /> Pay KSh 150 with M-Pesa
                   </>
                 )}
               </Button>
+
               {waiting && (
-                <p className="text-xs text-muted-foreground">
-                  Enter your M-Pesa PIN on your phone. This screen updates by itself.
-                </p>
+                <div className="rounded-md bg-secondary/50 p-3 text-center">
+                  <p className="text-xs font-medium">Check your phone now</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Enter your M-Pesa PIN when prompted. This page will unlock automatically.
+                  </p>
+                </div>
               )}
             </div>
+
+            {!signedIn && (
+              <div className="mt-5 rounded-lg border border-dashed border-border p-4 text-center">
+                <p className="text-xs text-muted-foreground mb-3">
+                  Want your subscription synced across devices? Sign in with Google or Email:
+                </p>
+                <div className="flex flex-col gap-2">
+                  <GoogleButton />
+                  <Button variant="outline" size="sm" onClick={() => void navigate({ to: "/auth", search: { redirect: "/subscribe" } })}>
+                    <Mail className="mr-2 h-4 w-4" /> Sign in with Email Code
+                  </Button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

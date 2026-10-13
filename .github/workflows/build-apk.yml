@@ -13,6 +13,8 @@ jobs:
   build-apk:
     name: Build Android APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -72,9 +74,31 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
+      - name: Prepare APK Asset
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk bujuu-app.apk
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: bujuu-app-debug.apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: bujuu-app.apk
           if-no-files-found: error
+
+      - name: Publish or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: latest
+          name: "BUJUU Android App v1.2"
+          body: |
+            ### BUJUU Android Release v1.2
+            - **M-Pesa STK Push Payment**: Fixed phone number normalization format for PayHero Kenyan mobile payments.
+            - **Referral & Earnings**: Personalized invite links, real-time subscriber counts, and 1-tap WhatsApp withdrawal.
+            - **Direct APK Downloads**: Active download links on `/download` for Android phones, tablets, and Android TV.
+            - **Brave adblock-rust**: Embedded Brave content blocking for clean stream playback.
+          files: bujuu-app.apk
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
