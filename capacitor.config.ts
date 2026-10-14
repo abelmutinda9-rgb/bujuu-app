@@ -14,7 +14,9 @@ const config: CapacitorConfig = {
       "*.supabase.co",
       "accounts.google.com",
       "*.google.com",
-      "*.googleusercontent.com"
+      "*.googleusercontent.com",
+      "*.payhero.co.ke",
+      "payhero.co.ke"
     ]
   },
   android: { 

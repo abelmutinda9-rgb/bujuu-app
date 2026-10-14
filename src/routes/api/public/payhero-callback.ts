@@ -50,12 +50,10 @@ export const Route = createFileRoute("/api/public/payhero-callback")({
         try {
           const check = await payheroTransactionStatus(providerRef);
           verified = check.status;
-        } catch {
-          // If transaction status endpoint fails or times out, check webhook payload status
-          const hookStatus = String(response["Status"] ?? response["status"] ?? "").toUpperCase();
-          if (hookStatus === "SUCCESS" || hookStatus === "COMPLETED" || response["ResultCode"] === 0) {
-            verified = "SUCCESS";
-          }
+        } catch (err) {
+          // Do not grant unverified subscriptions if the provider status query fails; keep pending
+          console.warn("PayHero verification status check error:", err);
+          return new Response("status_check_deferred", { status: 202 });
         }
 
         if (verified !== "SUCCESS") {

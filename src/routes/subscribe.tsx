@@ -37,7 +37,18 @@ export const Route = createFileRoute("/subscribe")({
 });
 
 function errorText(error: unknown) {
-  return error instanceof Error ? error.message : "Something went wrong. Please try again.";
+  if (!error) return "Something went wrong. Please try again.";
+  if (error instanceof Error) {
+    const msg = error.message;
+    if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Load failed")) {
+      return "Unable to reach the payment server. Please verify your internet connection or try again in a moment.";
+    }
+    if (msg.includes("timeout") || msg.includes("timed out")) {
+      return "The payment request timed out. Please try again.";
+    }
+    return msg;
+  }
+  return String(error);
 }
 
 function normalizeInputPhone(input: string): string {

@@ -20,7 +20,7 @@ pub extern "system" fn Java_app_bujuu_tv_adblock_AdBlockBridge_nativeInit(
         Err(_) => return JNI_FALSE,
     };
 
-    let mut filter_set = FilterSet::new(false);
+    let mut filter_set = FilterSet::new(true);
     filter_set.add_filter_list(rules_str, ParseOptions::default());
     let engine = Engine::new_with_filter_set(filter_set);
 
@@ -30,6 +30,40 @@ pub extern "system" fn Java_app_bujuu_tv_adblock_AdBlockBridge_nativeInit(
     } else {
         JNI_FALSE
     }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_bujuu_tv_adblock_AdBlockBridge_nativeGetRulesStats(
+    env: JNIEnv,
+    _class: JClass,
+) -> jni::sys::jstring {
+    let lock = match ENGINE.read() {
+        Ok(l) => l,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    if let Some(engine) = lock.as_ref() {
+        let debug = engine.get_debug_info();
+        let mut network_count = 0;
+        let mut cosmetic_count = 0;
+        let mut parse_errors = 0;
+        for info in debug.source_info.iter() {
+            network_count += info.network_filter_count;
+            cosmetic_count += info.cosmetic_filter_count;
+            parse_errors += info.parse_error;
+        }
+
+        let json = format!(
+            "{{\"network_filters\":{},\"cosmetic_filters\":{},\"parse_errors\":{}}}",
+            network_count, cosmetic_count, parse_errors
+        );
+
+        if let Ok(js) = env.new_string(json) {
+            return js.into_raw();
+        }
+    }
+
+    std::ptr::null_mut()
 }
 
 #[no_mangle]
