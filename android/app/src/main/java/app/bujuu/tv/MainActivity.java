@@ -6,10 +6,12 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Message;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
@@ -44,13 +46,22 @@ public class MainActivity extends BridgeActivity {
                 }
             });
 
-            // Intercept WebView network requests, redirects, and dom life cycle to block ads natively
+            // Suppress unwanted ad popup windows
+            webView.setWebChromeClient(new WebChromeClient() {
+                @Override
+                public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+                    Log.i(TAG, "Suppressed popup window creation (isUserGesture=" + isUserGesture + ")");
+                    return false; // Do not open popup windows
+                }
+            });
+
+            // Intercept WebView network requests, redirects, and dom lifecycle to block ads natively
             getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
                 @Override
                 public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                     AdBlockEngine.AdBlockDecision decision = AdBlockEngine.getInstance().evaluateRequest(request);
                     if (decision.isBlocked) {
-                        Log.d(TAG, "Suppressed ad resource request: " + request.getUrl() + " [serving " + decision.mimeType + "]");
+                        Log.d(TAG, "Suppressed ad resource: " + request.getUrl() + " [" + decision.mimeType + "]");
                         return new WebResourceResponse(decision.mimeType, "UTF-8", new ByteArrayInputStream(decision.data));
                     }
                     return super.shouldInterceptRequest(view, request);
@@ -78,7 +89,7 @@ public class MainActivity extends BridgeActivity {
                     // Check for ad/popup redirects
                     if (AdBlockEngine.getInstance().shouldBlock(url)) {
                         Log.i(TAG, "Blocked unwanted ad/popup redirect navigation: " + url);
-                        return true; // Consume and block navigation
+                        return true; // Consume and suppress navigation
                     }
 
                     // Check for direct media downloads (.mkv, .mp4, etc.)

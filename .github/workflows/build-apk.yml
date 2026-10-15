@@ -57,6 +57,7 @@ jobs:
           VITE_SUPABASE_URL: "https://uutspemcwnizcvnmzzah.supabase.co"
           VITE_SUPABASE_PROJECT_ID: "uutspemcwnizcvnmzzah"
           VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_xk6aq99MweDuvwEg4zbD2A_epHChYwA"
+          VITE_BACKEND_URL: "https://lynnn-phi.vercel.app"
         run: |
           bun run build
           mkdir -p dist/client
@@ -90,13 +91,13 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "BUJUU Android App v1.2"
+          name: "BUJUU Android App v1.3"
           body: |
-            ### BUJUU Android Release v1.2
-            - **M-Pesa STK Push Payment**: Fixed phone number normalization format for PayHero Kenyan mobile payments.
+            ### BUJUU Android Release v1.3
+            - **PayHero STK Push Connectivity**: Resolved Android WebView "Failed to fetch" error via Capacitor native bridge, CORS preflight handling, and absolute backend routing.
             - **Referral & Earnings**: Personalized invite links, real-time subscriber counts, and 1-tap WhatsApp withdrawal.
-            - **Direct APK Downloads**: Active download links on `/download` for Android phones, tablets, and Android TV.
-            - **Brave adblock-rust**: Embedded Brave content blocking for clean stream playback.
+            - **In-Place App Updates**: Version code incremented (versionCode 4, versionName 1.3) with consistent debug keystore for seamless updates without uninstalling.
+            - **Brave Ad-Blocking Upgrades**: Clean neutral resource stubs, protected video player controls, improved pop-up and redirect suppression, and granular resource classification.
           files: bujuu-app.apk
           prerelease: false
           make_latest: true

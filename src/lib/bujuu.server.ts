@@ -255,9 +255,9 @@ export async function bindDevice(subscriberId: string, deviceId: string) {
 const PAYHERO_URL = "https://backend.payhero.co.ke/api/v2/payments";
 
 export function payheroConfigured() {
-  const username = process.env["PAYHERO_API_USERNAME"] || "Fwn62pjQ6lqCzqeExV9h";
-  const password = process.env["PAYHERO_API_PASSWORD"] || "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb";
-  const channelId = process.env["PAYHERO_CHANNEL_ID"] || "12608";
+  const username = process.env["PAYHERO_API_USERNAME"];
+  const password = process.env["PAYHERO_API_PASSWORD"];
+  const channelId = process.env["PAYHERO_CHANNEL_ID"];
   return Boolean(username && password && channelId);
 }
 
@@ -267,10 +267,12 @@ export async function payheroStkPush(args: {
   reference: string;
   callbackUrl: string;
 }) {
-  const username = process.env["PAYHERO_API_USERNAME"] || "Fwn62pjQ6lqCzqeExV9h";
-  const password = process.env["PAYHERO_API_PASSWORD"] || "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb";
-  const channelId = process.env["PAYHERO_CHANNEL_ID"] || "12608";
-  if (!username || !password || !channelId) throw new Error("Payments are not configured yet.");
+  const username = process.env["PAYHERO_API_USERNAME"];
+  const password = process.env["PAYHERO_API_PASSWORD"];
+  const channelId = process.env["PAYHERO_CHANNEL_ID"];
+  if (!username || !password || !channelId) {
+    throw new Error("PayHero payment credentials are not configured on the server. Please check backend environment variables.");
+  }
 
   // PayHero requires 10-digit national format (e.g. 0787677676); 254... results in HTTP 400
   let payheroPhone = args.phone;
@@ -318,7 +320,7 @@ export function siteOrigin(): string {
   if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("capacitor")) {
     return `${proto}://${host}`;
   }
-  return "https://lynnn.lovable.app";
+  return "https://lynnn-phi.vercel.app";
 }
 
 /** Independently confirms a payment with PayHero (never trust the callback body alone). */
@@ -326,9 +328,11 @@ export async function payheroTransactionStatus(reference: string): Promise<{
   status: string;
   raw: unknown;
 }> {
-  const username = process.env["PAYHERO_API_USERNAME"] || "Fwn62pjQ6lqCzqeExV9h";
-  const password = process.env["PAYHERO_API_PASSWORD"] || "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb";
-  if (!username || !password) throw new Error("Payments are not configured yet.");
+  const username = process.env["PAYHERO_API_USERNAME"];
+  const password = process.env["PAYHERO_API_PASSWORD"];
+  if (!username || !password) {
+    throw new Error("PayHero credentials are not configured on the server.");
+  }
   const auth = btoa(`${username}:${password}`);
   const res = await fetch(
     `https://backend.payhero.co.ke/api/v2/transaction-status?reference=${encodeURIComponent(reference)}`,

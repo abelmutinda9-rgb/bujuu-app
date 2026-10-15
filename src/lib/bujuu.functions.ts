@@ -212,6 +212,11 @@ export const verifyAndActivatePayment = createServerFn({ method: "POST" })
       return { status: "FAILED", isPremium: false };
     }
 
+    if (Number(payment.amount) !== PLAN_AMOUNT) {
+      await db.from("payments").update({ status: "failed" }).eq("id", payment.id);
+      return { status: "FAILED", isPremium: false };
+    }
+
     // Query PayHero status directly from backend
     const providerRef = payment.provider_reference || payment.reference;
     try {

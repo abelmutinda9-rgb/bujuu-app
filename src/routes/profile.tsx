@@ -146,6 +146,8 @@ function ProfilePage() {
             <InviteFriends />
 
             <ContactSupport />
+
+            <AppUpdatesSection />
           </div>
         )}
       </div>
@@ -519,6 +521,72 @@ function WithdrawSection({ stats, userId }: { stats: ReferralStats; userId: stri
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function AppUpdatesSection() {
+  const [checking, setChecking] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<{
+    versionName: string;
+    versionCode: number;
+    apkUrl: string;
+    releaseNotes: string;
+    isNewer: boolean;
+  } | null>(null);
+
+  const checkUpdates = async () => {
+    setChecking(true);
+    try {
+      const res = await fetch("/version.json?t=" + Date.now());
+      if (!res.ok) throw new Error("Could not fetch version info");
+      const data = await res.json();
+      const currentCode = 4; // v1.3
+      const isNewer = Number(data.versionCode) > currentCode;
+      setUpdateInfo({
+        versionName: data.versionName || "1.3",
+        versionCode: Number(data.versionCode) || 4,
+        apkUrl: data.apkUrl || "https://github.com/abelmutinda9-rgb/bujuu-app/releases/download/latest/bujuu-app.apk",
+        releaseNotes: data.releaseNotes || "",
+        isNewer,
+      });
+      if (!isNewer) {
+        toast.success("BUJUU is up to date (v1.3)");
+      } else {
+        toast.info("New version available: v" + data.versionName);
+      }
+    } catch {
+      toast.error("Could not check for updates. Please try again.");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 max-w-md rounded-lg border border-border p-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold">BUJUU App Version</p>
+          <p className="text-xs text-muted-foreground">Installed: v1.3 (Build 4)</p>
+        </div>
+        <Button size="sm" variant="outline" disabled={checking} onClick={checkUpdates}>
+          {checking ? "Checking..." : "Check for updates"}
+        </Button>
+      </div>
+
+      {updateInfo && updateInfo.isNewer && (
+        <div className="mt-4 rounded-md bg-secondary/80 p-3 text-xs">
+          <p className="font-semibold text-foreground">Update Available: v{updateInfo.versionName}</p>
+          <p className="text-muted-foreground mt-1">{updateInfo.releaseNotes}</p>
+          <a
+            href={updateInfo.apkUrl}
+            download="bujuu-app.apk"
+            className="mt-3 inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            Download & Update APK
+          </a>
+        </div>
+      )}
     </div>
   );
 }
