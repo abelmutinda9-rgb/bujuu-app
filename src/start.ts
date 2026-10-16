@@ -54,7 +54,7 @@ const csrfMiddleware = createCsrfMiddleware({
       "https://app.bujuu.tv",
       "https://lynnn.lovable.app",
       "https://buuju.lovable.app",
-      "https://lynnn-phi.vercel.app",
+      "https://lynnn.lovable.app",
       "https://bujuu-app.vercel.app",
     ];
     if (allowed.includes(origin)) return true;
@@ -67,7 +67,7 @@ const csrfMiddleware = createCsrfMiddleware({
 export const REMOTE_BACKEND_BASE =
   (typeof process !== "undefined" && process.env?.VITE_BACKEND_URL) ||
   ((import.meta as any).env?.VITE_BACKEND_URL) ||
-  "https://lynnn-phi.vercel.app";
+  "https://lynnn.lovable.app";
 
 export const startInstance = createStart(() => ({
   functionMiddleware: [attachSupabaseAuth],
