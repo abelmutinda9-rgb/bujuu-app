@@ -15,6 +15,10 @@ const MOCK_NOOP_JS = `
   window.canRunAds = true;
   window.isAdBlockActive = false;
   window.adblock = false;
+  window.adblocker = false;
+  window.hasAdblocker = false;
+  window.is_adblock = false;
+  window.adBlockDetected = false;
   window.google_ad_client = null;
   window.google_ad_status = 1;
   window.googletag = window.googletag || {
@@ -35,6 +39,16 @@ const MOCK_NOOP_JS = `
   };
   window.adsbygoogle = window.adsbygoogle || [];
   window.adsbygoogle.loaded = true;
+  window.adsbygoogle.push = function() { return 0; };
+  var noopBlocker = {
+    check: function() {},
+    on: function(det, cb) { if (!det && typeof cb === "function") cb(); return this; },
+    onDetected: function() { return this; },
+    onNotDetected: function(cb) { if (typeof cb === "function") cb(); return this; }
+  };
+  window.blockAdBlock = noopBlocker;
+  window.fuckAdBlock = noopBlocker;
+  window.snigelAdBlock = noopBlocker;
 })();
 `;
 
@@ -56,6 +70,7 @@ const AD_DOMAINS = [
   "trafficjunky.com",
   "clickadu.com",
   "admaven.com",
+  "ad-maven.com",
   "hilltopads.com",
   "richpush.co",
   "evadav.com",
@@ -77,6 +92,17 @@ const AD_DOMAINS = [
   "clarity.ms",
   "bet365.com",
   "1xbet.com",
+  "onclickalgo.com",
+  "onclickperformance.com",
+  "tsyndicate.com",
+  "traffichaus.com",
+  "trafficforce.com",
+  "adsupply.com",
+  "plugrush.com",
+  "wigetmedia.com",
+  "infolinks.com",
+  "histats.com",
+  "statcounter.com",
 ];
 
 // Essential domains that must never be blocked
@@ -86,6 +112,7 @@ const SAFE_HOSTS = [
   "bujuu.tv",
   "supabase.co",
   "lovable.cloud",
+  "lovable.app",
   "themoviedb.org",
   "tmdb.org",
   "google.com",
@@ -98,8 +125,15 @@ export function isAdUrl(url: string): boolean {
   if (!url) return false;
   const lower = url.toLowerCase();
 
-  // Never block media streams or app infrastructure
-  if (lower.includes(".m3u8") || lower.includes(".mpd") || lower.includes(".ts")) {
+  // Never block media streams, subtitles, or app infrastructure
+  if (
+    lower.includes(".m3u8") ||
+    lower.includes(".mpd") ||
+    lower.includes(".ts") ||
+    lower.includes(".vtt") ||
+    lower.includes(".srt") ||
+    lower.includes("/api/")
+  ) {
     return false;
   }
 
@@ -115,14 +149,17 @@ export function isAdUrl(url: string): boolean {
       if (host === ad || host.endsWith("." + ad)) return true;
     }
 
-    // Pattern matching for typical ad scripts and tracking pixels
+    // Pattern matching for typical ad scripts, popunders, and tracking pixels
     if (
       lower.includes("/popunder") ||
       lower.includes("/adsterra") ||
       lower.includes("/monetag") ||
       lower.includes("adsbygoogle") ||
       lower.includes("/vpaid") ||
-      lower.includes("/vast-tag")
+      lower.includes("/vast-tag") ||
+      lower.includes("popads") ||
+      lower.includes("/adx/") ||
+      lower.includes("/adserver")
     ) {
       return true;
     }
@@ -164,6 +201,7 @@ export function injectCosmeticStyles() {
 
 /**
  * Injects anti-adblock bypass mocks so video players and embeds run without anti-adblock detection.
+ * Also defuses aggressive redirects, window.open popups, and ad scriptlet probes.
  */
 export function injectScriptletMocks() {
   if (typeof window === "undefined") return;
@@ -173,23 +211,91 @@ export function injectScriptletMocks() {
     w.canRunAds = true;
     w.isAdBlockActive = false;
     w.adblock = false;
+    w.adblocker = false;
+    w.hasAdblocker = false;
+    w.is_adblock = false;
+    w.adBlockDetected = false;
     w.google_ad_client = null;
     w.google_ad_status = 1;
     w.adsbygoogle = w.adsbygoogle || [];
     w.adsbygoogle.loaded = true;
+    w.adsbygoogle.push = function () {
+      return 0;
+    };
+
+    // Anti-adblock library mocks (BlockAdBlock, FuckAdBlock, etc.)
+    const noopAdBlockObj = {
+      check: function () {},
+      clearEvent: function () {},
+      emitEvent: function () {},
+      on: function (_detected: boolean, cb: any) {
+        if (!_detected && typeof cb === "function") cb();
+        return this;
+      },
+      onDetected: function () {
+        return this;
+      },
+      onNotDetected: function (cb: any) {
+        if (typeof cb === "function") cb();
+        return this;
+      },
+    };
+    w.blockAdBlock = noopAdBlockObj;
+    w.fuckAdBlock = noopAdBlockObj;
+    w.snigelAdBlock = noopAdBlockObj;
 
     // Neutralize intrusive popup/popunder triggers via window.open
+    const createDummyWindow = () => ({
+      closed: false,
+      close: () => {},
+      focus: () => {},
+      blur: () => {},
+      postMessage: () => {},
+      location: {
+        replace: () => {},
+        assign: () => {},
+        href: "",
+      },
+      document: {
+        write: () => {},
+        open: () => {},
+        close: () => {},
+        createElement: () => document.createElement("div"),
+      },
+    });
+
     const originalOpen = window.open;
-    window.open = function (url?: string | URL, target?: string, features?: string) {
+    window.open = function (url?: string | URL, _target?: string, _features?: string) {
       if (url) {
         const urlStr = url.toString();
-        if (isAdUrl(urlStr)) {
+        if (
+          isAdUrl(urlStr) ||
+          urlStr === "about:blank" ||
+          urlStr.startsWith("javascript:") ||
+          urlStr.includes("onclick")
+        ) {
           console.log("[AdBlock] Neutralized popup window.open:", urlStr);
-          return null;
+          return createDummyWindow() as unknown as Window;
         }
+      } else {
+        console.log("[AdBlock] Neutralized empty popup window.open");
+        return createDummyWindow() as unknown as Window;
       }
       return originalOpen.apply(this, arguments as any);
     };
+
+    // Defuse aggressive beforeunload prompts used by ad networks
+    try {
+      window.addEventListener(
+        "beforeunload",
+        (e) => {
+          delete (e as any).returnValue;
+        },
+        true,
+      );
+    } catch {
+      /* ignore */
+    }
   } catch {
     /* ignore */
   }
@@ -208,9 +314,17 @@ export function interceptNetworkRequests() {
     window.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
       const urlStr = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 
-      if (isAdUrl(urlStr)) {
-        console.log("[AdBlock] Intercepted fetch to ad/tracker:", urlStr);
-        if (urlStr.includes(".js") || urlStr.includes("/js/")) {
+      const isProbe =
+        urlStr.includes("/ads.js") ||
+        urlStr.includes("/adframe.js") ||
+        urlStr.includes("/pagead/js/adsbygoogle.js") ||
+        urlStr.includes("prebid.js") ||
+        urlStr.includes("ad-blocker.js") ||
+        urlStr.includes("detect-adblock");
+
+      if (isAdUrl(urlStr) || isProbe) {
+        console.log("[AdBlock] Intercepted ad/probe fetch:", urlStr);
+        if (urlStr.includes(".js") || urlStr.includes("/js/") || isProbe) {
           return new Response(MOCK_NOOP_JS, {
             status: 200,
             headers: { "Content-Type": "application/javascript" },
@@ -248,18 +362,26 @@ export function interceptNetworkRequests() {
       password?: string | null,
     ) {
       const urlStr = url.toString();
-      (this as any).__bujuu_is_ad = isAdUrl(urlStr);
+      const isProbe =
+        urlStr.includes("/ads.js") ||
+        urlStr.includes("/adframe.js") ||
+        urlStr.includes("/pagead/js/adsbygoogle.js") ||
+        urlStr.includes("prebid.js") ||
+        urlStr.includes("detect-adblock");
+
+      (this as any).__bujuu_is_ad = isAdUrl(urlStr) || isProbe;
       (this as any).__bujuu_url = urlStr;
+      (this as any).__bujuu_is_probe = isProbe;
       return originalOpen.apply(this, arguments as any);
     };
 
     XMLHttpRequest.prototype.send = function (body?: Document | XMLHttpRequestBodyInit | null) {
       if ((this as any).__bujuu_is_ad) {
-        console.log("[AdBlock] Intercepted XHR to ad/tracker:", (this as any).__bujuu_url);
-        // Emulate immediate successful empty completion
+        console.log("[AdBlock] Intercepted ad/probe XHR:", (this as any).__bujuu_url);
+        const respText = (this as any).__bujuu_is_probe ? MOCK_NOOP_JS : "";
         Object.defineProperty(this, "status", { value: 200, writable: false });
         Object.defineProperty(this, "readyState", { value: 4, writable: false });
-        Object.defineProperty(this, "responseText", { value: "", writable: false });
+        Object.defineProperty(this, "responseText", { value: respText, writable: false });
         setTimeout(() => {
           if (typeof this.onreadystatechange === "function") {
             this.onreadystatechange(new Event("readystatechange"));

@@ -4,6 +4,23 @@ import { createStart, createCsrfMiddleware, createMiddleware } from "@tanstack/r
 import { renderErrorPage } from "./lib/error-page";
 import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
 
+const ALLOWED_ORIGINS = new Set([
+  "capacitor://localhost",
+  "http://localhost",
+  "https://localhost",
+  "https://lynnn.lovable.app",
+  "https://app.bujuu.tv",
+]);
+
+function isAllowedOrigin(origin: string | null | undefined): boolean {
+  if (!origin) return false;
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  if (origin.endsWith(".lovable.app") || origin.endsWith(".vercel.app")) {
+    return true;
+  }
+  return false;
+}
+
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
     return await next();
@@ -20,23 +37,28 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
 });
 
 const corsMiddleware = createMiddleware().server(async ({ next, request }) => {
-  const origin = request.headers.get("origin") || "";
+  const origin = request.headers.get("origin");
   const isPreflight = request.method === "OPTIONS";
 
   if (isPreflight) {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": origin || "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "content-type, x-tsr-serverFn, x-tss-raw, Authorization",
-        "Access-Control-Max-Age": "86400",
-      },
-    });
+    // Return a clean 204 response with matching CORS headers for allowed Capacitor and web origins
+    if (origin && isAllowedOrigin(origin)) {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": origin,
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "content-type, x-tsr-serverFn, x-tss-raw, Authorization",
+          "Access-Control-Max-Age": "86400",
+          "Vary": "Origin",
+        },
+      });
+    }
+    return new Response(null, { status: 204 });
   }
 
   const response = await next();
-  if (response instanceof Response && origin) {
+  if (response instanceof Response && origin && isAllowedOrigin(origin)) {
     response.headers.set("Access-Control-Allow-Origin", origin);
     response.headers.set("Vary", "Origin");
   }
@@ -45,21 +67,27 @@ const corsMiddleware = createMiddleware().server(async ({ next, request }) => {
 
 const csrfMiddleware = createCsrfMiddleware({
   filter: (ctx) => ctx.handlerType === "serverFn",
+  secFetchSite: (site, ctx) => {
+    // Normal web browser checks: same-origin and none pass through
+    if (site === "same-origin" || site === "none") return true;
+    // For cross-site / same-site requests (e.g. from Capacitor mobile WebView),
+    // allow if originating from a trusted allowed origin
+    const origin = ctx.request.headers.get("origin");
+    if (origin && isAllowedOrigin(origin)) return true;
+    const referer = ctx.request.headers.get("referer");
+    if (referer) {
+      try {
+        const refOrigin = new URL(referer).origin;
+        if (isAllowedOrigin(refOrigin)) return true;
+      } catch {
+        /* ignore invalid referer */
+      }
+    }
+    return false;
+  },
   origin: (origin) => {
     if (!origin) return true;
-    const allowed = [
-      "https://localhost",
-      "http://localhost",
-      "capacitor://localhost",
-      "https://app.bujuu.tv",
-      "https://lynnn.lovable.app",
-      "https://buuju.lovable.app",
-      "https://lynnn.lovable.app",
-      "https://bujuu-app.vercel.app",
-    ];
-    if (allowed.includes(origin)) return true;
-    if (origin.endsWith(".vercel.app") || origin.endsWith(".lovable.app")) return true;
-    return false;
+    return isAllowedOrigin(origin);
   },
   allowRequestsWithoutOriginCheck: true,
 });
@@ -95,6 +123,9 @@ export const startInstance = createStart(() => ({
           }
           if (!headers["x-tsr-serverFn"]) {
             headers["x-tsr-serverFn"] = "true";
+          }
+          if (!headers["Origin"] && !headers["origin"]) {
+            headers["Origin"] = "http://localhost";
           }
 
           let data: any = undefined;
