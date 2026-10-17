@@ -12,7 +12,7 @@ import { useAccount, useSession } from "@/hooks/use-account";
 import { supabase } from "@/integrations/supabase/client";
 import { GoogleButton } from "@/components/GoogleButton";
 import { transferDevice } from "@/lib/account.functions";
-import { startPayment, verifyAndActivatePayment } from "@/lib/bujuu.functions";
+import { checkPaymentStatus, normalizeKenyanPhone, requestStkPush } from "@/services/payhero";
 
 export const Route = createFileRoute("/subscribe")({
   validateSearch: z.object({ redirect: z.string().optional() }),
@@ -49,20 +49,6 @@ function errorText(error: unknown) {
     return msg;
   }
   return String(error);
-}
-
-function normalizeInputPhone(input: string): string {
-  const digits = (input ?? "").replace(/\D/g, "");
-  let n = digits;
-  if (n.startsWith("2540")) n = `0${n.slice(4)}`;
-  else if (n.startsWith("254")) n = `0${n.slice(3)}`;
-  else if (n.startsWith("7") || n.startsWith("1")) n = `0${n}`;
-  else if (!n.startsWith("0")) n = `0${n}`;
-
-  if (!/^0(7|1)\d{8}$/.test(n)) {
-    throw new Error("Enter a valid Safaricom or Airtel number (e.g. 0712345678 or 0112345678)");
-  }
-  return n;
 }
 
 function TransferCard({ email, onDone }: { email: string; onDone: () => void }) {
@@ -112,12 +98,18 @@ function TransferCard({ email, onDone }: { email: string; onDone: () => void }) 
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Mail className="mr-2 h-4 w-4" /> Email me a code</>}
         </Button>
       ) : (
-        <>
-          <Input inputMode="numeric" placeholder="6-digit code" value={code} onChange={(e) => setCode(e.target.value)} />
+        <div className="space-y-2">
+          <Input
+            inputMode="numeric"
+            placeholder="6-digit code"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+          />
           <Button className="w-full" disabled={busy || code.trim().length < 6} onClick={verify}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Move it here"}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm and watch here"}
           </Button>
-        </>
+        </div>
       )}
     </div>
   );
@@ -143,14 +135,11 @@ function SubscribePage() {
 
   const pay = useMutation({
     mutationFn: async () => {
-      const cleanPhone = normalizeInputPhone(phone);
-      return await startPayment({
-        data: {
-          phone: cleanPhone,
-          userId: session?.user?.id ?? null,
-          deviceId: creds?.deviceId ?? null,
-          deviceSecret: creds?.deviceSecret ?? null,
-        },
+      const cleanPhone = normalizeKenyanPhone(phone);
+      return await requestStkPush({
+        phone: cleanPhone,
+        userId: session?.user?.id ?? null,
+        deviceId: creds?.deviceId ?? null,
       });
     },
     onSuccess: (data) => {
@@ -170,16 +159,87 @@ function SubscribePage() {
     const tick = async () => {
       if (cancelled) return;
       try {
-        const result = await verifyAndActivatePayment({
-          data: {
-            reference,
-            userId: session?.user?.id ?? null,
-            deviceId: creds?.deviceId ?? null,
-          },
-        });
+        const result = await checkPaymentStatus(reference);
 
         if (result.status === "SUCCESS") {
           setWaiting(false);
+          const userId = session?.user?.id;
+          const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+
+          // Save in localStorage for immediate active access across app
+          try {
+            if (userId) {
+              localStorage.setItem(
+                `bujuu_sub_${userId}`,
+                JSON.stringify({ isPremium: true, phone, expiresAt, reference })
+              );
+            }
+            localStorage.setItem(
+              "bujuu_sub_device",
+              JSON.stringify({ isPremium: true, phone, expiresAt, reference })
+            );
+          } catch {}
+
+          // Synchronize with Supabase if possible
+          if (userId) {
+            try {
+              const { data: existingSub } = await supabase
+                .from("subscribers")
+                .select("id")
+                .eq("user_id", userId)
+                .maybeSingle();
+
+              let subId = existingSub?.id;
+              if (!subId) {
+                const { data: createdSub } = await supabase
+                  .from("subscribers")
+                  .insert({ user_id: userId, phone })
+                  .select("id")
+                  .maybeSingle();
+                subId = createdSub?.id;
+              }
+
+              if (subId) {
+                await supabase.from("subscriptions").insert({
+                  subscriber_id: subId,
+                  status: "active",
+                  expires_at: expiresAt,
+                  auto_renew: false,
+                });
+              }
+
+              // Qualify referral if referral code was used
+              const refCode = localStorage.getItem("bujuu_referral_code") || localStorage.getItem("bujuu.ref");
+              if (refCode) {
+                const { data: refOwner } = await supabase
+                  .from("referral_codes")
+                  .select("user_id")
+                  .eq("code", refCode)
+                  .maybeSingle();
+
+                if (refOwner?.user_id && refOwner.user_id !== userId) {
+                  await supabase.from("referrals").upsert(
+                    {
+                      referrer_id: refOwner.user_id,
+                      referred_user_id: userId,
+                      status: "qualified",
+                      qualified_at: new Date().toISOString(),
+                    },
+                    { onConflict: "referred_user_id" }
+                  );
+
+                  await supabase.from("referral_ledger").insert({
+                    user_id: refOwner.user_id,
+                    amount: 30,
+                    kind: "reward",
+                  });
+                }
+              }
+            } catch (syncErr) {
+              console.warn("Supabase sub sync note:", syncErr);
+            }
+          }
+
           refresh();
           if (!doneRef.current) {
             doneRef.current = true;

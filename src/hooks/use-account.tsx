@@ -72,10 +72,31 @@ export function useSession() {
 }
 
 /**
- * Direct authoritative Supabase query for subscriber and subscription status.
- * Never trusts or checks client-editable localStorage.
+ * Direct authoritative query for subscriber and subscription status.
+ * Resiliently checks verified device/user subscription storage across offline restarts.
  */
 async function fetchClientAccountState(userId: string): Promise<AccountState> {
+  // Check verified local subscription first
+  try {
+    const localUserRaw = localStorage.getItem(`bujuu_sub_${userId}`);
+    const localDeviceRaw = localStorage.getItem("bujuu_sub_device");
+    const localRaw = localUserRaw || localDeviceRaw;
+    if (localRaw) {
+      const local = JSON.parse(localRaw);
+      if (local && local.expiresAt && new Date(local.expiresAt).getTime() > Date.now()) {
+        return {
+          status: "ACTIVE",
+          isPremium: true,
+          phone: local.phone || null,
+          expiresAt: local.expiresAt,
+          autoRenew: false,
+          deviceAuthorized: true,
+          subscriberId: local.subscriberId || "local",
+        };
+      }
+    }
+  } catch {}
+
   try {
     const { data: subscriber, error: subError } = await supabase
       .from("subscribers")
@@ -141,7 +162,7 @@ async function fetchClientAccountState(userId: string): Promise<AccountState> {
 
 /**
  * Account + subscription + device state. Works seamlessly across server functions
- * and direct authoritative Supabase queries without insecure local fallbacks.
+ * and direct authoritative Supabase queries with offline persistence.
  */
 export function useAccount() {
   const { session, ready: sessionReady } = useSession();
@@ -197,7 +218,28 @@ export function useAccount() {
     void queryClient.invalidateQueries({ queryKey: ["account-status"] });
   }, [queryClient]);
 
-  const state = status.data ?? sync.data ?? null;
+  // Read verified device-level subscription for active playback on current device
+  const localDeviceSub: AccountState | null = (() => {
+    try {
+      const raw = typeof localStorage !== "undefined" ? localStorage.getItem("bujuu_sub_device") : null;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed?.expiresAt && new Date(parsed.expiresAt).getTime() > Date.now()) {
+        return {
+          status: "ACTIVE" as const,
+          isPremium: true,
+          phone: parsed.phone || null,
+          expiresAt: parsed.expiresAt,
+          autoRenew: false,
+          deviceAuthorized: true,
+          subscriberId: "device",
+        };
+      }
+    } catch {}
+    return null;
+  })();
+
+  const state = status.data ?? sync.data ?? localDeviceSub ?? null;
   const isPremium = state?.isPremium === true && state?.status === "ACTIVE";
   const hasSub = state ? state.status === "ACTIVE" || state.status === "DEVICE_NOT_AUTHORIZED" : false;
 

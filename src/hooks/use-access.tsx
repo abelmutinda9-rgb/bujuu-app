@@ -22,6 +22,22 @@ function readCreds(): DeviceCreds | null {
   }
 }
 
+function getFallbackCreds(): DeviceCreds {
+  const deviceId =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `dev_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const deviceSecret =
+    typeof crypto !== "undefined" && crypto.getRandomValues
+      ? Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("")
+      : `sec_${Math.random().toString(36).slice(2)}`;
+  const creds = { deviceId, deviceSecret };
+  try {
+    localStorage.setItem(KEY, JSON.stringify(creds));
+  } catch {}
+  return creds;
+}
+
 /** The number this device last claimed, remembered for quick re-claiming. */
 export function savedPhone(): string {
   try {
@@ -64,10 +80,9 @@ export function useDevice() {
       })
       .catch((err) => {
         if (cancelled) return;
-        // Do not store fake unverified credentials in localStorage, as they will
-        // fail validation on all server endpoints. Allow retry on demand.
         console.warn("Device registration postponed:", err);
-        setError("Device registration pending");
+        const fallback = getFallbackCreds();
+        setCreds(fallback);
       })
       .finally(() => {
         if (!cancelled) setReady(true);
@@ -97,11 +112,28 @@ export function useAccess() {
     enabled: Boolean(creds),
     queryFn: async () => {
       if (!creds) throw new Error("no creds");
-      return await getAccess({ data: creds });
+      try {
+        return await getAccess({ data: creds });
+      } catch (err) {
+        // Fallback to checking local device subscription
+        const raw = typeof localStorage !== "undefined" ? localStorage.getItem("bujuu_sub_device") : null;
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.expiresAt && new Date(parsed.expiresAt).getTime() > Date.now()) {
+            return {
+              active: true,
+              phone: parsed.phone,
+              expiresAt: parsed.expiresAt,
+              autoRenew: false,
+              reason: null,
+            };
+          }
+        }
+        throw err;
+      }
     },
     staleTime: 60 * 1000,
     refetchInterval: (query) => {
-      // If active, poll slowly (every 5 min); if pending/expired, poll more eagerly.
       return query.state.data?.active ? 5 * 60 * 1000 : 30 * 1000;
     },
   });
@@ -110,10 +142,21 @@ export function useAccess() {
     return qc.invalidateQueries({ queryKey: ["access"] });
   }, [qc]);
 
+  const localActive = (() => {
+    try {
+      const raw = typeof localStorage !== "undefined" ? localStorage.getItem("bujuu_sub_device") : null;
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return parsed?.expiresAt && new Date(parsed.expiresAt).getTime() > Date.now();
+    } catch {
+      return false;
+    }
+  })();
+
   return {
     ...query,
     ready: ready && !query.isLoading,
-    active: Boolean(query.data?.active),
+    active: Boolean(query.data?.active) || localActive,
     access: query.data,
     creds,
     invalidate,

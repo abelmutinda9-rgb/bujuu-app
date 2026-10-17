@@ -58,6 +58,9 @@ jobs:
           VITE_SUPABASE_PROJECT_ID: "uutspemcwnizcvnmzzah"
           VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_xk6aq99MweDuvwEg4zbD2A_epHChYwA"
           VITE_BACKEND_URL: "https://lynnn.lovable.app"
+          VITE_PAYHERO_API_USERNAME: "Fwn62pjQ6lqCzqeExV9h"
+          VITE_PAYHERO_API_PASSWORD: "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb"
+          VITE_PAYHERO_CHANNEL_ID: "12608"
         run: |
           bun run build
           mkdir -p dist/client
@@ -91,12 +94,12 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "BUJUU Android App v1.3"
+          name: "BUJUU Android App v1.4"
           body: |
-            ### BUJUU Android Release v1.3
+            ### BUJUU Android Release v1.4
             - **PayHero STK Push Connectivity**: Resolved Android WebView "Failed to fetch" error via Capacitor native bridge, CORS preflight handling, and absolute backend routing.
             - **Referral & Earnings**: Personalized invite links, real-time subscriber counts, and 1-tap WhatsApp withdrawal.
-            - **In-Place App Updates**: Version code incremented (versionCode 4, versionName 1.3) with consistent debug keystore for seamless updates without uninstalling.
+            - **In-Place App Updates**: Version code incremented (versionCode 5, versionName 1.4) with consistent debug keystore for seamless updates without uninstalling.
             - **Brave Ad-Blocking Upgrades**: Clean neutral resource stubs, protected video player controls, improved pop-up and redirect suppression, and granular resource classification.
           files: bujuu-app.apk
           prerelease: false
