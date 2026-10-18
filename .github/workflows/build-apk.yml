@@ -94,16 +94,14 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "BUJUU Android App v1.5"
+          name: "BUJUU Android App v1.6"
           body: |
-            ### BUJUU Android Release v1.5
-            - **Disabled Player Iframe Sandbox**: Removed restrictive iframe sandbox attribute to resolve the "Please disable sandbox" message from third-party streaming providers, while preserving ad/popup blocking via Brave adblock-rust and native WebView routing.
-            - **Anti-Reverse Engineering & App Hardening**:
-              - Enabled R8 bytecode obfuscation, namespace flattening, dead code stripping, and method inlining.
-              - Stripped source file names and debug line numbers (`-renamesourcefileattribute ""`).
-              - Stripped console logs and debugger calls across production web assets (`drop: ["console", "debugger"]`).
-              - Disabled ADB backup extraction (`android:allowBackup="false"`).
-            - **In-Place App Updates**: Version code incremented to 6 (versionName 1.5) with consistent debug keystore.
+            ### BUJUU Android Release v1.6 (AdBlock & Navigation Defense Upgrade)
+            - **Brave adblock-rust Initiator Accuracy**: Evaluates network requests with real Referer/Origin context to activate domain-specific filter rules and third-party checks for streaming embeds.
+            - **Strict Top-Level Navigation Lock**: Completely prevents subframe ad scripts from hijacking the top-level player window via top.location or opening malicious external schemes (market://, intent://).
+            - **Dynamic Background Filter Updater**: Automatically checks and downloads fresh filter rules every 24 hours, safely caching and dynamically refreshing the Brave engine without app restarts.
+            - **Expanded Streaming Filter Rulebook**: Added 100+ specialized video ad network blocks, popunder suppressors, anti-adblock defusers, and cosmetic rules tailored for VidSrc, 2Embed, SuperEmbed, and StreamTape.
+            - **In-Place Update Support**: Version code 7 (versionName 1.6) with matching keystore signature for seamless in-place updates.
           files: bujuu-app.apk
           prerelease: false
           make_latest: true

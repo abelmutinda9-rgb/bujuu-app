@@ -9,6 +9,11 @@ import android.webkit.WebView;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import android.content.SharedPreferences;
+import java.io.FileOutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -105,7 +110,32 @@ public class AdBlockEngine {
             "adcash.com",
             "mgid.com",
             "bidvertiser.com",
-            "revenuehits.com"
+            "revenuehits.com",
+            "bidgear.com",
+            "ad-maven.com",
+            "onclickalgo.com",
+            "deloton.com",
+            "tsyndicate.com",
+            "tubecup.net",
+            "rtmark.net",
+            "hpyrdr.com",
+            "bestcontentfood.top",
+            "syndication.realsrv.com",
+            "realsrv.com",
+            "vdo.ai",
+            "aniview.com",
+            "connatix.com",
+            "playwire.com",
+            "primis.tech",
+            "adnxs.com",
+            "rubiconproject.com",
+            "openx.net",
+            "pubmatic.com",
+            "criteo.com",
+            "criteo.net",
+            "notix.co",
+            "onesignal.com",
+            "pushwoosh.com",
     ));
 
     private AdBlockEngine() {}
@@ -162,6 +192,9 @@ public class AdBlockEngine {
         } catch (Exception e) {
             Log.e(TAG, "Failed to initialize adblock filters", e);
         }
+
+        // Check for fresh remote filter rule updates asynchronously (once every 24h)
+        checkAndUpdateFiltersAsync(context);
     }
 
     private static String readStreamToString(InputStream is) throws Exception {
@@ -187,8 +220,22 @@ public class AdBlockEngine {
         String sourceUrl = "https://app.bujuu.tv";
         String reqType = "other";
 
-        // Granular resource-type classification based on Sec-Fetch-Dest, Sec-Fetch-Mode, and Accept headers
+        // Extract genuine Referer or Origin to provide accurate initiator context to Brave adblock-rust
         Map<String, String> headers = request.getRequestHeaders();
+        if (headers != null) {
+            String referer = headers.get("Referer");
+            if (referer == null) referer = headers.get("referer");
+            String origin = headers.get("Origin");
+            if (origin == null) origin = headers.get("origin");
+
+            if (referer != null && !referer.isEmpty() && !referer.startsWith("capacitor://") && !referer.startsWith("http://localhost")) {
+                sourceUrl = referer;
+            } else if (origin != null && !origin.isEmpty() && !origin.startsWith("capacitor://") && !origin.startsWith("http://localhost")) {
+                sourceUrl = origin;
+            }
+        }
+
+        // Granular resource-type classification based on Sec-Fetch-Dest, Sec-Fetch-Mode, and Accept headers
         if (headers != null) {
             String dest = headers.get("Sec-Fetch-Dest");
             if (dest == null) dest = headers.get("sec-fetch-dest");
@@ -441,4 +488,74 @@ public class AdBlockEngine {
             Log.w(TAG, "Failed to inject cosmetic hiding: " + t.getMessage());
         }
     }
+
+    /**
+     * Periodically updates filter rules in the background from remote source without blocking UI or playback.
+     * Caches rules locally and re-initializes Brave adblock engine dynamically.
+     */
+    public void checkAndUpdateFiltersAsync(Context context) {
+        if (context == null) return;
+        final Context appContext = context.getApplicationContext();
+
+        new Thread(() -> {
+            try {
+                SharedPreferences prefs = appContext.getSharedPreferences("bujuu_adblock_prefs", Context.MODE_PRIVATE);
+                long lastCheck = prefs.getLong("last_filter_check_timestamp", 0);
+                long now = System.currentTimeMillis();
+                // Check once every 24 hours
+                if (now - lastCheck < 24 * 60 * 60 * 1000) {
+                    Log.d(TAG, "AdBlock filters are fresh (last checked " + ((now - lastCheck) / 3600000) + "h ago)");
+                    return;
+                }
+
+                Log.i(TAG, "Checking for remote adblock filter updates...");
+                String filterUrl = "https://raw.githubusercontent.com/abelmutinda9-rgb/bujuu-app/main/android/app/src/main/assets/adblock-filters.txt";
+                URL url = new URL(filterUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(15000);
+                conn.setRequestProperty("User-Agent", "BUJUU-Android-AdBlock/1.6");
+
+                int code = conn.getResponseCode();
+                if (code == 200) {
+                    InputStream is = conn.getInputStream();
+                    String newRules = readStreamToString(is);
+                    conn.disconnect();
+
+                    if (newRules != null && newRules.length() > 50000 && (newRules.contains("||") || newRules.startsWith("!"))) {
+                        File tempFile = new File(appContext.getFilesDir(), "adblock-filters-updated.tmp");
+                        File targetFile = new File(appContext.getFilesDir(), "adblock-filters-updated.txt");
+
+                        FileOutputStream fos = new FileOutputStream(tempFile);
+                        fos.write(newRules.getBytes(StandardCharsets.UTF_8));
+                        fos.flush();
+                        fos.close();
+
+                        if (tempFile.renameTo(targetFile)) {
+                            Log.i(TAG, "Successfully downloaded and cached fresh adblock filters (" + targetFile.length() + " bytes)");
+                            prefs.edit().putLong("last_filter_check_timestamp", now).apply();
+
+                            // Re-initialize engine with updated rules dynamically
+                            if (AdBlockBridge.isLibraryLoaded()) {
+                                boolean ok = AdBlockBridge.nativeInit(newRules);
+                                if (ok) {
+                                    ruleStatsJson = AdBlockBridge.nativeGetRulesStats();
+                                    Log.i(TAG, "Dynamically reloaded Brave adblock engine with fresh rules: " + ruleStatsJson);
+                                }
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "Remote filter rules did not pass sanity validation (length=" + (newRules != null ? newRules.length() : 0) + ")");
+                    }
+                } else {
+                    Log.w(TAG, "Remote filter check received HTTP " + code);
+                    conn.disconnect();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Background filter update check failed (offline or network error): " + e.getMessage());
+            }
+        }, "BujuuAdBlockUpdater").start();
+    }
+
 }

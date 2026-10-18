@@ -11765,3 +11765,105 @@ hktvmall.com##+js(set, Object.prototype.componentInScreen, noopFunc)
 expatexplorer.hsbc.com##+js(trusted-set, HSBC, 'json:{"SITE":{},"DCS":{},"PAGE":{}}')
 @@||homedepot.com.ssl.d2.sc.omtrdc.net^$xhr,domain=homedepot.com
 ||imasdk.googleapis.com/js/sdkloader/ima3.js$redirect=google-ima.js,domain=aryplus.tv
+
+! ========================================================
+! BUJUU Enhanced Streaming & Video Embed AdBlock Filter Rules
+! Curated for VidSrc, 2Embed, SuperEmbed, StreamTape, Filemoon
+! ========================================================
+
+! Common video ad networks & popup injectors
+||bidgear.com^
+||ad-maven.com^
+||onclickalgo.com^
+||deloton.com^
+||tsyndicate.com^
+||tubecup.net^
+||rtmark.net^
+||hpyrdr.com^
+||bestcontentfood.top^
+||creative.hpyrdr.com^
+||syndication.realsrv.com^
+||realsrv.com^
+||vdo.ai^
+||aniview.com^
+||springserve.com^
+||spotxchange.com^
+||teads.tv^
+||connatix.com^
+||playwire.com^
+||primis.tech^
+||undertone.com^
+||yieldlove.com^
+||criteo.com^
+||criteo.net^
+||adnxs.com^
+||rubiconproject.com^
+||openx.net^
+||pubmatic.com^
+||casalemedia.com^
+||bidswitch.net^
+||smartadserver.com^
+||adform.net^
+||sovrn.com^
+||lijit.com^
+||trafficjunky.net^
+||adxxx.info^
+||plugrush.com^
+||ero-advertising.com^
+||trafficfactory.biz^
+||bongacams.com^
+||chaturbate.com^
+||stripchat.com^
+||livejasmin.com^
+||cam4.com^
+||bet365.com^
+||1xbet.com^
+||1x-bet.com^
+||betwinner.com^
+||melbet.com^
+||22bet.com^
+||mostbet.com^
+||parimatch.com^
+||dafabet.com^
+||wintogether.click^
+||pushwoosh.com^
+||onesignal.com^
+||subscribers.com^
+||pushowl.com^
+||notix.co^
+||pushground.com^
+||pushub.com^
+||pushprime.com^
+||ad-delivery.net^
+||delivery-ads.com^
+||adrunnr.com^
+||adtrafficquality.google^
+||adskeeper.com^
+||adskeeper.co.uk^
+||mgid.com^
+||revcontent.com^
+
+! Video Player Specific Cosmetic & Scriptlet Defusers
+##.jw-ad-container
+##.jw-ad-display
+##.jw-ads-advertising
+##.video-ads
+##.ad-overlay
+##.ad-container
+##.player-ad
+##.vast-ad
+##.vpaid-ad
+##.preroll-ad
+##.midroll-ad
+##.postroll-ad
+##.player-ads-banner
+##.video-ad-block
+
+! Prevent popups and anti-adblock traps on embed players
+vidsrc.*##+js(no-window-open)
+vidsrc.*##+js(set, adsbygoogle, true)
+2embed.*##+js(no-window-open)
+superembed.*##+js(no-window-open)
+streamtape.*##+js(no-window-open)
+doodstream.*##+js(no-window-open)
+filemoon.*##+js(no-window-open)

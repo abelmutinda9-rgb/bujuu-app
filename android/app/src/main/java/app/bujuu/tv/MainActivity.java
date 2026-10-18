@@ -84,12 +84,15 @@ public class MainActivity extends BridgeActivity {
                     if (request == null || request.getUrl() == null) {
                         return super.shouldOverrideUrlLoading(view, request);
                     }
-                    String url = request.getUrl().toString();
+                    Uri uri = request.getUrl();
+                    String url = uri.toString();
+                    String scheme = uri.getScheme();
+                    String host = uri.getHost();
 
-                    // Check for ad/popup redirects
-                    if (AdBlockEngine.getInstance().shouldBlock(url)) {
-                        Log.i(TAG, "Blocked unwanted ad/popup redirect navigation: " + url);
-                        return true; // Consume and suppress navigation
+                    // Block external non-web schemes triggered by ad networks (e.g. market://, intent://)
+                    if (scheme != null && !scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https") && !scheme.equalsIgnoreCase("capacitor")) {
+                        Log.w(TAG, "Blocked external non-web scheme attempt from ad: " + url);
+                        return true;
                     }
 
                     // Check for direct media downloads (.mkv, .mp4, etc.)
@@ -98,6 +101,36 @@ public class MainActivity extends BridgeActivity {
                         Log.i(TAG, "Intercepted direct media download URL: " + url);
                         startNativeDownload(url, null, null, lower.endsWith(".mp4") ? "video/mp4" : "video/x-matroska");
                         return true;
+                    }
+
+                    // Check for ad/popup redirects
+                    if (AdBlockEngine.getInstance().shouldBlock(url)) {
+                        Log.i(TAG, "Blocked unwanted ad/popup redirect navigation: " + url);
+                        return true; // Consume and suppress navigation
+                    }
+
+                    // STRICT TOP-LEVEL APP NAVIGATION LOCK:
+                    // If a subframe or script attempts to navigate the top-level window (isForMainFrame),
+                    // only allow navigations to trusted internal app endpoints or legitimate auth/payment flows.
+                    if (request.isForMainFrame()) {
+                        if (host != null) {
+                            String lowerHost = host.toLowerCase();
+                            boolean isTrustedMainHost = lowerHost.equals("localhost")
+                                    || lowerHost.equals("127.0.0.1")
+                                    || lowerHost.equals("app.bujuu.tv")
+                                    || lowerHost.endsWith(".bujuu.tv")
+                                    || lowerHost.equals("accounts.google.com")
+                                    || lowerHost.endsWith(".google.com")
+                                    || lowerHost.endsWith(".lovable.app")
+                                    || lowerHost.endsWith(".lovable.cloud")
+                                    || lowerHost.endsWith(".vercel.app")
+                                    || lowerHost.endsWith(".payhero.co.ke");
+
+                            if (!isTrustedMainHost) {
+                                Log.w(TAG, "Blocked unauthorized top-level window hijack to: " + url);
+                                return true; // Suppress top-level hijack
+                            }
+                        }
                     }
 
                     return super.shouldOverrideUrlLoading(view, request);
