@@ -94,13 +94,16 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "BUJUU Android App v1.4"
+          name: "BUJUU Android App v1.5"
           body: |
-            ### BUJUU Android Release v1.4
-            - **PayHero STK Push Connectivity**: Resolved Android WebView "Failed to fetch" error via Capacitor native bridge, CORS preflight handling, and absolute backend routing.
-            - **Referral & Earnings**: Personalized invite links, real-time subscriber counts, and 1-tap WhatsApp withdrawal.
-            - **In-Place App Updates**: Version code incremented (versionCode 5, versionName 1.4) with consistent debug keystore for seamless updates without uninstalling.
-            - **Brave Ad-Blocking Upgrades**: Clean neutral resource stubs, protected video player controls, improved pop-up and redirect suppression, and granular resource classification.
+            ### BUJUU Android Release v1.5
+            - **Disabled Player Iframe Sandbox**: Removed restrictive iframe sandbox attribute to resolve the "Please disable sandbox" message from third-party streaming providers, while preserving ad/popup blocking via Brave adblock-rust and native WebView routing.
+            - **Anti-Reverse Engineering & App Hardening**:
+              - Enabled R8 bytecode obfuscation, namespace flattening, dead code stripping, and method inlining.
+              - Stripped source file names and debug line numbers (`-renamesourcefileattribute ""`).
+              - Stripped console logs and debugger calls across production web assets (`drop: ["console", "debugger"]`).
+              - Disabled ADB backup extraction (`android:allowBackup="false"`).
+            - **In-Place App Updates**: Version code incremented to 6 (versionName 1.5) with consistent debug keystore.
           files: bujuu-app.apk
           prerelease: false
           make_latest: true
