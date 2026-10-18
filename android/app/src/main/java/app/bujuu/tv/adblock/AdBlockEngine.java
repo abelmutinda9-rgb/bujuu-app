@@ -135,7 +135,7 @@ public class AdBlockEngine {
             "criteo.net",
             "notix.co",
             "onesignal.com",
-            "pushwoosh.com",
+            "pushwoosh.com"
     ));
 
     private AdBlockEngine() {}
