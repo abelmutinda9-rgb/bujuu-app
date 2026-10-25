@@ -166,3 +166,12 @@
   --color-paper-muted: var(--paper-muted);
   --color-paper-field: var(--paper-field);
 }
+
+
+/* TV Remote & Spatial Focus Enhancements */
+@layer base {
+  :focus-visible {
+    outline: 3px solid oklch(0.55 0.22 27.5) !important;
+    outline-offset: 3px !important;
+  }
+}
