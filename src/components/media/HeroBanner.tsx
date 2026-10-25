@@ -66,7 +66,7 @@ export function HeroBanner({
   const tags = currentItem.genreIds.map((id) => GENRES[id]).filter(Boolean).slice(0, 3);
   const year = currentItem.releaseDate ? new Date(currentItem.releaseDate).getFullYear() : undefined;
 
-  const handlePlayClick = (e: React.MouseEvent) => {
+  const handlePlayClick = (e: React.MouseEvent | React.KeyboardEvent) => {
     if (!signedIn || !isPremium) {
       e.preventDefault();
       toast.error("Active subscription (KSh 150 / 30 days) required to watch movies.");
@@ -76,6 +76,18 @@ export function HeroBanner({
           redirect: `/watch?tmdbId=${currentItem.id}&mediaType=${currentItem.mediaType}&season=1&episode=1`,
         },
       });
+    }
+  };
+
+  const handlePlayKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      handlePlayClick(e);
+      if (signedIn && isPremium) {
+        void navigate({
+          to: "/watch",
+          search: { tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 },
+        });
+      }
     }
   };
 
@@ -135,23 +147,39 @@ export function HeroBanner({
         )}
         {currentItem.overview && <p className="line-clamp-2 max-w-xl text-xs text-white/80 sm:line-clamp-3 sm:text-sm lg:text-base">{currentItem.overview}</p>}
 
+        {/* TV Remote navigable actions */}
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <Link
             to="/watch"
             search={{ tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 }}
             onClick={handlePlayClick}
-            className="inline-flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-xs font-bold text-black shadow-lg transition-transform hover:scale-105 active:scale-95 sm:px-6 sm:py-3 sm:text-sm"
+            onKeyDown={handlePlayKeyDown}
+            tabIndex={0}
+            aria-label={`Play ${currentItem.title}`}
+            className="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-black text-black shadow-2xl transition-all duration-200 outline-none hover:scale-105 active:scale-95 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-rose-500 focus-visible:bg-rose-500 focus-visible:text-white"
           >
-            <Play className="h-4 w-4 fill-black sm:h-5 sm:w-5" /> Play
+            <Play className="h-5 w-5 fill-current" /> Play
           </Link>
           {onSelect && (
-            <button type="button" onClick={() => onSelect(currentItem)} className="inline-flex items-center gap-2 rounded-lg bg-white/20 px-5 py-2.5 text-xs font-bold text-white backdrop-blur-md transition-colors hover:bg-white/30 sm:px-6 sm:py-3 sm:text-sm">
-              <Info className="h-4 w-4 sm:h-5 sm:w-5" /> More Info
+            <button
+              type="button"
+              tabIndex={0}
+              onClick={() => onSelect(currentItem)}
+              className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-6 py-3 text-sm font-bold text-white backdrop-blur-md transition-all duration-200 outline-none hover:bg-white/30 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-white"
+            >
+              <Info className="h-5 w-5" /> More Info
             </button>
           )}
-          <button type="button" onClick={myList.onToggle} disabled={myList.pending} aria-label={myList.inList ? "Remove from My List" : "Add to My List"} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2.5 text-xs font-medium text-white backdrop-blur-md transition-colors hover:bg-white/20 sm:px-5 sm:py-3 sm:text-sm">
-            {myList.inList ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            <span className="hidden sm:inline">{myList.inList ? "In My List" : "My List"}</span>
+          <button
+            type="button"
+            tabIndex={0}
+            onClick={myList.onToggle}
+            disabled={myList.pending}
+            aria-label={myList.inList ? "Remove from My List" : "Add to My List"}
+            className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-medium text-white backdrop-blur-md transition-all duration-200 outline-none hover:bg-white/20 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-white"
+          >
+            {myList.inList ? <Check className="h-5 w-5 text-rose-500" /> : <Plus className="h-5 w-5" />}
+            <span>{myList.inList ? "In My List" : "My List"}</span>
           </button>
         </div>
 
@@ -161,10 +189,11 @@ export function HeroBanner({
               <button
                 key={`${media.mediaType}-${media.id}`}
                 type="button"
+                tabIndex={0}
                 onClick={() => setCurrentIndex(index)}
                 aria-label={`Show ${media.title}`}
                 aria-current={index === currentIndex ? "true" : undefined}
-                className={`h-2 rounded-full transition-all motion-reduce:transition-none ${index === currentIndex ? "w-7 bg-rose-500" : "w-2 bg-white/50 hover:bg-white/80"}`}
+                className={`h-2.5 rounded-full transition-all motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-white ${index === currentIndex ? "w-8 bg-rose-500" : "w-2.5 bg-white/50 hover:bg-white/80"}`}
               />
             ))}
           </div>
