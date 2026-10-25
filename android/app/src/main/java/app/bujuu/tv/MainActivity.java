@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Message;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
@@ -137,6 +138,43 @@ public class MainActivity extends BridgeActivity {
                 }
             });
         }
+    }
+
+    /**
+     * Enhanced TV Remote Control and D-pad Interception:
+     * Forwards Android TV Back, OK/Center, and Directional buttons cleanly into the WebView.
+     */
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            int keyCode = event.getKeyCode();
+            Log.d(TAG, "TV Remote KeyEvent: " + keyCode);
+
+            // Handle Back key on Android TV / Fire TV
+            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE || keyCode == KeyEvent.KEYCODE_BUTTON_B) {
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    WebView webView = getBridge().getWebView();
+                    // Dispatch a custom synthetic TV back event to the web app
+                    String js = "window.dispatchEvent(new CustomEvent('bujuu-tv-back'));";
+                    webView.evaluateJavascript(js, null);
+                }
+            }
+
+            // Handle OK / Center click on Android TV remote
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    WebView webView = getBridge().getWebView();
+                    String js = "(function(){"
+                            + "var active = document.activeElement;"
+                            + "if (active && typeof active.click === 'function') {"
+                            + "  active.click();"
+                            + "}"
+                            + "})();";
+                    webView.evaluateJavascript(js, null);
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     private void startNativeDownload(String url, String userAgent, String contentDisposition, String mimetype) {
