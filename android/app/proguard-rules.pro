@@ -1,13 +1,23 @@
-# BUJUU Obfuscation, Shrinking, and Anti-Reverse Engineering Rules
+# BUJUU Obfuscation, Shrinking, and Extreme Anti-Reverse Engineering Rules
 
-# Optimization passes and aggressive optimizations
+# Aggressive 5-pass optimization
 -optimizationpasses 5
 -allowaccessmodification
 -repackageclasses 'app.bujuu.tv.obf'
+-flattenpackagehierarchy 'app.bujuu.tv.obf'
 
-# Obfuscate source file names and strip debugging line numbers
+# Obfuscate source file names and strip debugging line numbers and symbols
 -renamesourcefileattribute ""
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+
+# Strip all Android logging calls in release/obfuscated bytecode
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+}
 
 # Keep native AdBlock Rust bridge and native methods
 -keep class app.bujuu.tv.adblock.AdBlockBridge {
