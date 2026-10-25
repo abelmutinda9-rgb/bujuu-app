@@ -86,19 +86,62 @@ function Watch() {
     [navigate],
   );
 
-  const back = useCallback(() => router.history.back(), [router]);
+  // Deterministic exit to home page or previous page
+  const exitToHome = useCallback(() => {
+    void navigate({ to: "/", replace: true });
+  }, [navigate]);
+
+  const back = useCallback(() => {
+    if (window.history.length > 1) {
+      router.history.back();
+    } else {
+      exitToHome();
+    }
+  }, [router, exitToHome]);
 
   // TV remote / keyboard: Back or Escape leaves the player or closes the overlay.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.key === "Backspace" || e.keyCode === 461) {
-        if (showEpisodes) setShowEpisodes(false);
-        else back();
+      if (e.key === "Escape" || e.key === "Backspace" || e.keyCode === 461 || e.keyCode === 10009) {
+        e.preventDefault();
+        if (showEpisodes) {
+          setShowEpisodes(false);
+        } else {
+          exitToHome();
+        }
+      } else if (e.key === "ArrowLeft") {
+        // Spatial Left on TV Remote: cycle server down if focused on servers
+        const active = document.activeElement;
+        if (active && active.getAttribute("data-tv-server") !== null) {
+          e.preventDefault();
+          setServer((s) => (s > 0 ? s - 1 : SERVER_COUNT - 1));
+        }
+      } else if (e.key === "ArrowRight") {
+        // Spatial Right on TV Remote: cycle server up if focused on servers
+        const active = document.activeElement;
+        if (active && active.getAttribute("data-tv-server") !== null) {
+          e.preventDefault();
+          setServer((s) => (s < SERVER_COUNT - 1 ? s + 1 : 0));
+        }
       }
     };
+
+    // Listen for native Android TV back event dispatched from MainActivity
+    const onNativeTvBack = () => {
+      if (showEpisodes) {
+        setShowEpisodes(false);
+      } else {
+        exitToHome();
+      }
+    };
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [showEpisodes, back]);
+    window.addEventListener("bujuu-tv-back", onNativeTvBack);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("bujuu-tv-back", onNativeTvBack);
+    };
+  }, [showEpisodes, exitToHome]);
 
   // 1. Account loading state
   if (accountLoading) {
@@ -133,6 +176,7 @@ function Watch() {
           <div className="flex flex-col gap-3 pt-2">
             <button
               type="button"
+              tabIndex={0}
               onClick={() =>
                 void navigate({
                   to: "/subscribe",
@@ -141,16 +185,17 @@ function Watch() {
                   },
                 })
               }
-              className="w-full rounded-xl bg-rose-600 py-3 text-sm font-bold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              className="w-full rounded-xl bg-rose-600 py-3 text-sm font-bold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] focus-visible:scale-105 focus-visible:ring-4 focus-visible:ring-rose-400"
             >
               Unlock for KSh 150 (30 Days)
             </button>
             <button
               type="button"
-              onClick={back}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-800/60 py-2.5 text-sm font-semibold text-zinc-300 transition-colors hover:bg-zinc-800"
+              tabIndex={0}
+              onClick={exitToHome}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-800/60 py-2.5 text-sm font-semibold text-zinc-300 transition-colors hover:bg-zinc-800 focus-visible:scale-105 focus-visible:ring-4 focus-visible:ring-white"
             >
-              Go Back
+              Exit to Home
             </button>
           </div>
         </div>
@@ -178,22 +223,24 @@ function Watch() {
       {!loaded && (
         <div className="absolute inset-0 grid place-items-center bg-black">
           <div className="flex flex-col items-center gap-4">
-            <Loader2 className="h-10 w-10 animate-spin text-brand" />
+            <Loader2 className="h-10 w-10 animate-spin text-rose-500" />
             <p className="text-sm text-muted-foreground">Connecting stream...</p>
           </div>
         </div>
       )}
 
+      {/* Top Left: Exit / Back Button with prominent TV focus */}
       <button
         type="button"
-        onClick={back}
+        onClick={exitToHome}
         tabIndex={0}
-        aria-label="Go back"
-        className="absolute left-4 top-4 z-20 grid h-10 w-10 place-items-center rounded-full bg-black/60 text-white outline-none backdrop-blur-md transition-transform hover:bg-black/80 focus:scale-105 focus:ring-4 focus:ring-brand"
+        aria-label="Exit to home"
+        className="absolute left-4 top-4 z-20 grid h-11 w-11 place-items-center rounded-full bg-black/70 text-white outline-none backdrop-blur-md transition-all hover:bg-black/90 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-rose-500 focus-visible:bg-black"
       >
-        <ArrowLeft className="h-5 w-5" />
+        <ArrowLeft className="h-6 w-6" />
       </button>
 
+      {/* Top Right: TV Controls */}
       <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
         {isTv && (
           <>
@@ -201,7 +248,7 @@ function Watch() {
               type="button"
               onClick={() => setShowEpisodes(true)}
               tabIndex={0}
-              className="flex h-10 items-center gap-2 rounded-full bg-black/60 px-4 text-sm font-medium text-white outline-none backdrop-blur-md transition-transform hover:bg-black/80 focus:scale-105 focus:ring-4 focus:ring-brand"
+              className="flex h-10 items-center gap-2 rounded-full bg-black/70 px-4 text-sm font-medium text-white outline-none backdrop-blur-md transition-all hover:bg-black/90 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-rose-500"
             >
               <ListVideo className="h-5 w-5" /> Episodes
             </button>
@@ -209,7 +256,7 @@ function Watch() {
               type="button"
               onClick={() => goTo(season, episode + 1)}
               tabIndex={0}
-              className="flex h-10 items-center gap-2 rounded-full bg-white/90 px-4 text-sm font-semibold text-black outline-none transition-transform hover:bg-white focus:scale-105 focus:ring-4 focus:ring-brand"
+              className="flex h-10 items-center gap-2 rounded-full bg-white/95 px-4 text-sm font-semibold text-black outline-none transition-all hover:bg-white focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-rose-500"
             >
               <SkipForward className="h-4 w-4" /> Next episode
             </button>
@@ -218,20 +265,22 @@ function Watch() {
       </div>
 
       {isTv && (
-        <p className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-center text-xs text-muted-foreground backdrop-blur-md">
-          Tip: use the gear icon inside the player to switch audio tracks and dubs.
+        <p className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/70 px-4 py-1.5 text-center text-xs text-muted-foreground backdrop-blur-md">
+          Tip: Press Back on remote anytime to exit to home.
         </p>
       )}
 
-      <div className="absolute bottom-16 left-1/2 z-20 flex max-w-[92vw] -translate-x-1/2 gap-2 overflow-x-auto rounded-full bg-black/70 p-1.5 backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Bottom Center: Server Selector Pills with TV Spatial Navigation */}
+      <div className="absolute bottom-14 left-1/2 z-20 flex max-w-[92vw] -translate-x-1/2 gap-2 overflow-x-auto rounded-full bg-black/80 p-2 backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {PROVIDERS.map((p, i) => (
           <button
             key={p.id}
             type="button"
             tabIndex={0}
+            data-tv-server={i}
             onClick={() => setServer(i)}
-            className={`shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold outline-none transition-transform focus:scale-105 focus:ring-4 focus:ring-brand ${
-              server === i ? "bg-rose-600 text-white" : "text-muted-foreground hover:bg-white/10"
+            className={`shrink-0 rounded-full px-4 py-1.5 text-xs font-bold outline-none transition-all focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-white ${
+              server === i ? "bg-rose-600 text-white shadow-lg" : "text-zinc-300 hover:bg-white/10"
             }`}
           >
             {p.label}
@@ -240,12 +289,12 @@ function Watch() {
       </div>
 
       {isTv && showEpisodes && (
-        <div className="absolute inset-y-0 right-0 z-30 flex w-full max-w-md flex-col border-l border-border bg-black/95 backdrop-blur-md">
-          <div className="flex items-center gap-3 border-b border-border p-4">
+        <div className="absolute inset-y-0 right-0 z-30 flex w-full max-w-md flex-col border-l border-zinc-800 bg-black/95 backdrop-blur-md">
+          <div className="flex items-center gap-3 border-b border-zinc-800 p-4">
             <select
               value={season}
               onChange={(e) => goTo(Number(e.target.value), 1)}
-              className="flex-1 rounded-md border border-border bg-black px-3 py-2 text-sm text-foreground outline-none focus:ring-4 focus:ring-brand"
+              className="flex-1 rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-4 focus-visible:ring-rose-500"
               aria-label="Season"
             >
               {Array.from({ length: Math.max(seasonCount, 1) }, (_, i) => i + 1).map((s) => (
@@ -256,9 +305,10 @@ function Watch() {
             </select>
             <button
               type="button"
+              tabIndex={0}
               onClick={() => setShowEpisodes(false)}
               aria-label="Close episodes"
-              className="grid h-9 w-9 place-items-center rounded-full text-muted-foreground outline-none hover:bg-white/10 focus:ring-4 focus:ring-brand"
+              className="grid h-9 w-9 place-items-center rounded-full text-zinc-300 outline-none hover:bg-white/10 focus-visible:ring-4 focus-visible:ring-rose-500"
             >
               <X className="h-5 w-5" />
             </button>
@@ -277,8 +327,8 @@ function Watch() {
                   type="button"
                   tabIndex={0}
                   onClick={() => goTo(season, ep.episodeNumber)}
-                  className={`flex w-full items-center gap-3 rounded-md p-2 text-left outline-none transition-colors focus:ring-4 focus:ring-brand ${
-                    active ? "bg-white/15" : "hover:bg-white/10"
+                  className={`flex w-full items-center gap-3 rounded-md p-2 text-left outline-none transition-all focus-visible:ring-4 focus-visible:ring-rose-500 ${
+                    active ? "bg-white/20" : "hover:bg-white/10"
                   }`}
                 >
                   <div className="h-16 w-28 shrink-0 overflow-hidden rounded bg-card">
