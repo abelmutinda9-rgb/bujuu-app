@@ -39,7 +39,43 @@ function Watch() {
   const [loaded, setLoaded] = useState(false);
   const [server, setServer] = useState(0);
   const [showEpisodes, setShowEpisodes] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const hideControlsTimeoutRef = useRef<number | null>(null);
   const isTv = mediaType === "tv";
+
+  // Helper to awaken controls on any interaction and set auto-fade timeout
+  const pingControls = useCallback(() => {
+    setShowControls(true);
+    if (hideControlsTimeoutRef.current) {
+      window.clearTimeout(hideControlsTimeoutRef.current);
+    }
+    hideControlsTimeoutRef.current = window.setTimeout(() => {
+      // Don't auto-hide if episodes drawer is currently open
+      setShowControls(false);
+    }, 4000);
+  }, []);
+
+  // Initial timer to hide controls after 4s
+  useEffect(() => {
+    pingControls();
+    return () => {
+      if (hideControlsTimeoutRef.current) {
+        window.clearTimeout(hideControlsTimeoutRef.current);
+      }
+    };
+  }, [pingControls]);
+
+  // Keep controls visible when episode drawer is open
+  useEffect(() => {
+    if (showEpisodes) {
+      setShowControls(true);
+      if (hideControlsTimeoutRef.current) {
+        window.clearTimeout(hideControlsTimeoutRef.current);
+      }
+    } else {
+      pingControls();
+    }
+  }, [showEpisodes, pingControls]);
 
   // Strict entitlement check: only generate embed URL when actively subscribed and authorized
   const canPlay = !accountLoading && isPremium && state?.status === "ACTIVE";
@@ -102,6 +138,7 @@ function Watch() {
   // TV remote / keyboard: Back or Escape leaves the player or closes the overlay.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      pingControls();
       if (e.key === "Escape" || e.key === "Backspace" || e.keyCode === 461 || e.keyCode === 10009) {
         e.preventDefault();
         if (showEpisodes) {
@@ -123,6 +160,9 @@ function Watch() {
           e.preventDefault();
           setServer((s) => (s < SERVER_COUNT - 1 ? s + 1 : 0));
         }
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter") {
+        // Any D-pad interaction also wakes up the controls
+        setShowControls(true);
       }
     };
 
@@ -141,7 +181,7 @@ function Watch() {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("bujuu-tv-back", onNativeTvBack);
     };
-  }, [showEpisodes, exitToHome]);
+  }, [showEpisodes, exitToHome, pingControls]);
 
   // 1. Account loading state
   if (accountLoading) {
@@ -177,14 +217,14 @@ function Watch() {
             <button
               type="button"
               tabIndex={0}
-              onClick={() =>
+              onClick={() => {
                 void navigate({
                   to: "/subscribe",
                   search: {
                     redirect: `/watch?tmdbId=${tmdbId}&mediaType=${mediaType}&season=${season}&episode=${episode}`,
                   },
-                })
-              }
+                });
+              }}
               className="w-full rounded-xl bg-rose-600 py-3 text-sm font-bold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] focus-visible:scale-105 focus-visible:ring-4 focus-visible:ring-rose-400"
             >
               Unlock for KSh 150 (30 Days)
@@ -204,7 +244,12 @@ function Watch() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 m-0 h-screen w-screen overflow-hidden bg-black p-0">
+    <div
+      onMouseMove={pingControls}
+      onClick={pingControls}
+      onTouchStart={pingControls}
+      className="fixed inset-0 z-50 m-0 h-screen w-screen overflow-hidden bg-black p-0 select-none"
+    >
       {src && (
         <iframe
           key={src}
@@ -235,13 +280,19 @@ function Watch() {
         onClick={exitToHome}
         tabIndex={0}
         aria-label="Exit to home"
-        className="absolute left-4 top-4 z-20 grid h-11 w-11 place-items-center rounded-full bg-black/70 text-white outline-none backdrop-blur-md transition-all hover:bg-black/90 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-rose-500 focus-visible:bg-black"
+        className={`absolute left-4 top-4 z-20 grid h-11 w-11 place-items-center rounded-full bg-black/70 text-white outline-none backdrop-blur-md transition-all duration-300 hover:bg-black/90 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-rose-500 focus-visible:bg-black ${
+          showControls ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-3 pointer-events-none"
+        }`}
       >
         <ArrowLeft className="h-6 w-6" />
       </button>
 
       {/* Top Right: TV Controls */}
-      <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
+      <div
+        className={`absolute right-4 top-4 z-20 flex items-center gap-2 transition-all duration-300 ${
+          showControls ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-3 pointer-events-none"
+        }`}
+      >
         {isTv && (
           <>
             <button
@@ -265,20 +316,31 @@ function Watch() {
       </div>
 
       {isTv && (
-        <p className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/70 px-4 py-1.5 text-center text-xs text-muted-foreground backdrop-blur-md">
+        <p
+          className={`pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/70 px-4 py-1.5 text-center text-xs text-muted-foreground backdrop-blur-md transition-all duration-300 ${
+            showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
+          }`}
+        >
           Tip: Press Back on remote anytime to exit to home.
         </p>
       )}
 
-      {/* Bottom Center: Server Selector Pills with TV Spatial Navigation */}
-      <div className="absolute bottom-14 left-1/2 z-20 flex max-w-[92vw] -translate-x-1/2 gap-2 overflow-x-auto rounded-full bg-black/80 p-2 backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Bottom Center: Server Selector Pills with Auto-hide and Smooth Fade */}
+      <div
+        className={`absolute bottom-12 left-1/2 z-20 flex max-w-[92vw] -translate-x-1/2 gap-2 overflow-x-auto rounded-full bg-black/85 p-2 backdrop-blur-md transition-all duration-300 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+          showControls ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-4 pointer-events-none"
+        }`}
+      >
         {PROVIDERS.map((p, i) => (
           <button
             key={p.id}
             type="button"
-            tabIndex={0}
+            tabIndex={showControls ? 0 : -1}
             data-tv-server={i}
-            onClick={() => setServer(i)}
+            onClick={() => {
+              setServer(i);
+              pingControls();
+            }}
             className={`shrink-0 rounded-full px-4 py-1.5 text-xs font-bold outline-none transition-all focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-white ${
               server === i ? "bg-rose-600 text-white shadow-lg" : "text-zinc-300 hover:bg-white/10"
             }`}
