@@ -96,11 +96,14 @@ public class MainActivity extends BridgeActivity {
                         return true;
                     }
 
-                    // Check for direct media downloads (.mkv, .mp4, etc.)
+                    // Check for direct media downloads (.mkv, .mp4, workers.dev, etc.) BEFORE top-level hijack checks
                     String lower = url.toLowerCase();
-                    if (lower.endsWith(".mkv") || lower.endsWith(".mp4") || lower.contains("/direct/movie/") || lower.contains("/download-link/")) {
+                    String path = uri.getPath() != null ? uri.getPath().toLowerCase() : "";
+                    if (lower.endsWith(".mkv") || lower.endsWith(".mp4") || path.endsWith(".mkv") || path.endsWith(".mp4")
+                            || lower.contains(".mkv?") || lower.contains(".mp4?")
+                            || lower.contains("workers.dev/d/") || lower.contains("/direct/movie/") || lower.contains("/download-link/")) {
                         Log.i(TAG, "Intercepted direct media download URL: " + url);
-                        startNativeDownload(url, null, null, lower.endsWith(".mp4") ? "video/mp4" : "video/x-matroska");
+                        startNativeDownload(url, null, null, lower.contains(".mp4") ? "video/mp4" : "video/x-matroska");
                         return true;
                     }
 
