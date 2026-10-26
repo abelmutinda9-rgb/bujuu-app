@@ -43,7 +43,7 @@ public class MainActivity extends BridgeActivity {
                 @Override
                 public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                     Log.i(TAG, "WebView onDownloadStart triggered for: " + url);
-                    startNativeDownload(url, userAgent, contentDisposition, mimetype);
+                    startNativeDownload(url, userAgent, contentDisposition, mimetype, webView.getUrl());
                 }
             });
 
@@ -96,14 +96,12 @@ public class MainActivity extends BridgeActivity {
                         return true;
                     }
 
-                    // Check for direct media downloads (.mkv, .mp4, workers.dev, etc.) BEFORE top-level hijack checks
+                    // Check for direct media downloads (.mkv, .mp4, etc.)
                     String lower = url.toLowerCase();
-                    String path = uri.getPath() != null ? uri.getPath().toLowerCase() : "";
-                    if (lower.endsWith(".mkv") || lower.endsWith(".mp4") || path.endsWith(".mkv") || path.endsWith(".mp4")
-                            || lower.contains(".mkv?") || lower.contains(".mp4?")
-                            || lower.contains("workers.dev/d/") || lower.contains("/direct/movie/") || lower.contains("/download-link/")) {
+                    if (lower.endsWith(".mkv") || lower.endsWith(".mp4") || lower.contains("/direct/movie/") || lower.contains("/download-link/")) {
                         Log.i(TAG, "Intercepted direct media download URL: " + url);
-                        startNativeDownload(url, null, null, lower.contains(".mp4") ? "video/mp4" : "video/x-matroska");
+                        String currentWebUrl = view != null ? view.getUrl() : null;
+                        startNativeDownload(url, null, null, lower.contains(".mp4") ? "video/mp4" : "video/x-matroska", currentWebUrl);
                         return true;
                     }
 
@@ -180,7 +178,7 @@ public class MainActivity extends BridgeActivity {
         return super.dispatchKeyEvent(event);
     }
 
-    private void startNativeDownload(String url, String userAgent, String contentDisposition, String mimetype) {
+    private void startNativeDownload(String url, String userAgent, String contentDisposition, String mimetype, String referer) {
         if (url == null || url.isEmpty()) return;
 
         runOnUiThread(() -> {
@@ -193,13 +191,33 @@ public class MainActivity extends BridgeActivity {
                     filename = "bujuu-video.mkv";
                 }
 
+                // Set standard Android mobile User-Agent if none provided
+                String effectiveUa = userAgent;
+                if (effectiveUa == null || effectiveUa.isEmpty()) {
+                    effectiveUa = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+                }
+                request.addRequestHeader("User-Agent", effectiveUa);
+
+                // Pass provider Referer header to prevent HTTP 403 Forbidden on stream CDNs/Cloudflare workers
+                String effectiveReferer = referer;
+                if (effectiveReferer == null || effectiveReferer.isEmpty() || effectiveReferer.contains("localhost")) {
+                    if (url.contains("workers.dev") || url.contains("vidvault")) {
+                        effectiveReferer = "https://vidvault.ru/";
+                    } else if (url.contains("vidfast")) {
+                        effectiveReferer = "https://vidfast.pro/";
+                    } else if (url.contains("vidy")) {
+                        effectiveReferer = "https://vidy.st/";
+                    }
+                }
+                if (effectiveReferer != null && !effectiveReferer.isEmpty()) {
+                    request.addRequestHeader("Referer", effectiveReferer);
+                    Log.i(TAG, "Added Referer header to native download: " + effectiveReferer);
+                }
+
                 // Preserve session cookies if any
                 String cookies = CookieManager.getInstance().getCookie(url);
                 if (cookies != null && !cookies.isEmpty()) {
                     request.addRequestHeader("Cookie", cookies);
-                }
-                if (userAgent != null && !userAgent.isEmpty()) {
-                    request.addRequestHeader("User-Agent", userAgent);
                 }
 
                 request.setTitle(filename);
