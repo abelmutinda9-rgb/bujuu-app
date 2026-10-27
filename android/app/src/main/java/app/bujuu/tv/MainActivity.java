@@ -202,7 +202,7 @@ public class MainActivity extends BridgeActivity {
                 String effectiveReferer = referer;
                 if (effectiveReferer == null || effectiveReferer.isEmpty() || effectiveReferer.contains("localhost")) {
                     if (url.contains("workers.dev") || url.contains("vidvault")) {
-                        effectiveReferer = "https://vidvault.ru/";
+                        effectiveReferer = "https://vidvault.to/";
                     } else if (url.contains("vidfast")) {
                         effectiveReferer = "https://vidfast.pro/";
                     } else if (url.contains("vidy")) {

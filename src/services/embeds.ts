@@ -47,8 +47,8 @@ export const PROVIDERS: EmbedProvider[] = [
     label: "Server 4",
     build: (t) =>
       isTv(t)
-        ? `https://vidvault.ru/tv/${t.tmdbId}/${s(t)}/${e(t)}`
-        : `https://vidvault.ru/movie/${t.tmdbId}`,
+        ? `https://vidvault.to/tv/${t.tmdbId}/${s(t)}/${e(t)}`
+        : `https://vidvault.to/movie/${t.tmdbId}`,
   },
   {
     id: "vidsrcmov",
