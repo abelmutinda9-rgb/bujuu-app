@@ -151,8 +151,17 @@ public class MainActivity extends BridgeActivity {
             int keyCode = event.getKeyCode();
             Log.d(TAG, "TV Remote KeyEvent: " + keyCode);
 
-            // Handle Back key on Android TV / Fire TV
-            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE || keyCode == KeyEvent.KEYCODE_BUTTON_B) {
+            // Handle Back / Exit / Escape keys on Android TV / Fire TV
+            if (keyCode == KeyEvent.KEYCODE_BACK 
+                || keyCode == KeyEvent.KEYCODE_ESCAPE 
+                || keyCode == KeyEvent.KEYCODE_BUTTON_B
+                || keyCode == KeyEvent.KEYCODE_MEDIA_STOP
+                || keyCode == KeyEvent.KEYCODE_CLEAR
+                || keyCode == 111 // KEYCODE_ESCAPE
+                || keyCode == 4   // KEYCODE_BACK
+                || keyCode == 86  // KEYCODE_MEDIA_STOP
+                || keyCode == 28  // KEYCODE_CLEAR
+            ) {
                 if (getBridge() != null && getBridge().getWebView() != null) {
                     WebView webView = getBridge().getWebView();
                     // Dispatch a custom synthetic TV back event to the web app

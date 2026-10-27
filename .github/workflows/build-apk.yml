@@ -94,9 +94,9 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "BUJUU Android App v1.8"
+          name: "BUJUU Android App v1.9"
           body: |
-            ### BUJUU Android Release v1.6 (AdBlock & Navigation Defense Upgrade)
+            ### BUJUU Android Release v1.9 (Tap-to-Wake & TV Remote Exit Upgrade)
             - **Brave adblock-rust Initiator Accuracy**: Evaluates network requests with real Referer/Origin context to activate domain-specific filter rules and third-party checks for streaming embeds.
             - **Strict Top-Level Navigation Lock**: Completely prevents subframe ad scripts from hijacking the top-level player window via top.location or opening malicious external schemes (market://, intent://).
             - **Dynamic Background Filter Updater**: Automatically checks and downloads fresh filter rules every 24 hours, safely caching and dynamically refreshing the Brave engine without app restarts.

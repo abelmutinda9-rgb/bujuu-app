@@ -1,3 +1,4 @@
+import { App as CapApp } from "@capacitor/app";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, ListVideo, Loader2, Lock, ShieldAlert, SkipForward, X } from "lucide-react";
@@ -124,7 +125,16 @@ function Watch() {
 
   // Deterministic exit to home page or previous page
   const exitToHome = useCallback(() => {
-    void navigate({ to: "/", replace: true });
+    try {
+      void navigate({ to: "/", replace: true });
+    } catch {
+      window.location.href = "/";
+    }
+    window.setTimeout(() => {
+      if (typeof window !== "undefined" && window.location.pathname.includes("/watch")) {
+        window.location.href = "/";
+      }
+    }, 120);
   }, [navigate]);
 
   const back = useCallback(() => {
@@ -135,12 +145,19 @@ function Watch() {
     }
   }, [router, exitToHome]);
 
-  // TV remote / keyboard: Back or Escape leaves the player or closes the overlay.
+  // TV remote / keyboard / native back handling: Back or Exit exits to home
   useEffect(() => {
+    const isExitKey = (e: KeyboardEvent) => {
+      const exitKeys = ["Escape", "Backspace", "GoBack", "Exit", "MediaStop", "Clear"];
+      const exitKeyCodes = [27, 8, 4, 111, 86, 28, 461, 10009, 10182];
+      return exitKeys.includes(e.key) || exitKeyCodes.includes(e.keyCode);
+    };
+
     const onKey = (e: KeyboardEvent) => {
       pingControls();
-      if (e.key === "Escape" || e.key === "Backspace" || e.keyCode === 461 || e.keyCode === 10009) {
+      if (isExitKey(e)) {
         e.preventDefault();
+        e.stopPropagation();
         if (showEpisodes) {
           setShowEpisodes(false);
         } else {
@@ -175,11 +192,36 @@ function Watch() {
       }
     };
 
+    // Register Capacitor hardware back button listener for Android devices
+    let removeCapBack: (() => void) | null = null;
+    try {
+      CapApp.addListener("backButton", () => {
+        if (showEpisodes) {
+          setShowEpisodes(false);
+        } else {
+          exitToHome();
+        }
+      }).then((handle) => {
+        removeCapBack = () => {
+          try {
+            handle.remove();
+          } catch {
+            // ignore
+          }
+        };
+      }).catch(() => {});
+    } catch {
+      // not in Capacitor environment
+    }
+
     window.addEventListener("keydown", onKey);
     window.addEventListener("bujuu-tv-back", onNativeTvBack);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("bujuu-tv-back", onNativeTvBack);
+      if (removeCapBack) {
+        removeCapBack();
+      }
     };
   }, [showEpisodes, exitToHome, pingControls]);
 
@@ -272,6 +314,25 @@ function Watch() {
             <p className="text-sm text-muted-foreground">Connecting stream...</p>
           </div>
         </div>
+      )}
+
+      {/* Tap-to-wake layer (Option 1): active when controls are hidden to reveal servers and UI on click/tap */}
+      {!showControls && (
+        <div
+          role="button"
+          tabIndex={-1}
+          aria-label="Wake up player controls and server buttons"
+          onClick={(e) => {
+            e.stopPropagation();
+            pingControls();
+          }}
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            pingControls();
+          }}
+          onMouseMove={pingControls}
+          className="absolute inset-0 z-10 cursor-pointer bg-transparent"
+        />
       )}
 
       {/* Top Left: Exit / Back Button with prominent TV focus */}
