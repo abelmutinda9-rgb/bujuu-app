@@ -11,22 +11,42 @@ export interface DeviceCreds {
   deviceSecret: string;
 }
 
+
+function getNativeDeviceId(): string | null {
+  if (typeof window !== "undefined" && (window as any).BujuuNative?.getDeviceId) {
+    try {
+      const id = (window as any).BujuuNative.getDeviceId();
+      if (id && id.length > 10) return id;
+    } catch {}
+  }
+  return null;
+}
+
 function readCreds(): DeviceCreds | null {
+  const nativeId = getNativeDeviceId();
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as DeviceCreds;
-    return parsed.deviceId && parsed.deviceSecret ? parsed : null;
-  } catch {
-    return null;
-  }
+    if (raw) {
+      const parsed = JSON.parse(raw) as DeviceCreds;
+      if (parsed.deviceId && parsed.deviceSecret) {
+        if (nativeId && parsed.deviceId !== nativeId) {
+          parsed.deviceId = nativeId;
+          try { localStorage.setItem(KEY, JSON.stringify(parsed)); } catch {}
+        }
+        return parsed;
+      }
+    }
+  } catch {}
+  return null;
 }
 
 function getFallbackCreds(): DeviceCreds {
+  const nativeId = getNativeDeviceId();
   const deviceId =
-    typeof crypto !== "undefined" && crypto.randomUUID
+    nativeId ||
+    (typeof crypto !== "undefined" && crypto.randomUUID
       ? crypto.randomUUID()
-      : `dev_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      : `dev_${Date.now()}_${Math.random().toString(36).slice(2)}`);
   const deviceSecret =
     typeof crypto !== "undefined" && crypto.getRandomValues
       ? Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("")
@@ -37,72 +57,6 @@ function getFallbackCreds(): DeviceCreds {
   } catch {}
   return creds;
 }
-
-/** The number this device last claimed, remembered for quick re-claiming. */
-export function savedPhone(): string {
-  try {
-    return localStorage.getItem(PHONE_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-export function rememberPhone(phone: string) {
-  try {
-    localStorage.setItem(PHONE_KEY, phone);
-  } catch {
-    /* private browsing */
-  }
-}
-
-/** Device identity for this browser/TV, created on first use. */
-export function useDevice() {
-  const [creds, setCreds] = useState<DeviceCreds | null>(readCreds);
-  const [ready, setReady] = useState(() => Boolean(readCreds()));
-  const [error, setError] = useState<string | null>(null);
-
-  const init = useCallback(() => {
-    let cancelled = false;
-    const existing = readCreds();
-    if (existing) {
-      setCreds(existing);
-      setReady(true);
-      return;
-    }
-    registerDevice({ data: { label: navigator.userAgent.slice(0, 80) } })
-      .then((next) => {
-        if (cancelled) return;
-        try {
-          localStorage.setItem(KEY, JSON.stringify(next));
-        } catch {}
-        setCreds(next);
-        setError(null);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.warn("Device registration postponed:", err);
-        const fallback = getFallbackCreds();
-        setCreds(fallback);
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    return init();
-  }, [init]);
-
-  return { creds, ready, error, retry: init };
-}
-
-/**
- * React hook that polls the subscriber's current access state.
- * Drives the paywall and the lock icon across the whole app.
- */
 export function useAccess() {
   const qc = useQueryClient();
   const { creds, ready } = useDevice();
@@ -161,4 +115,21 @@ export function useAccess() {
     creds,
     invalidate,
   };
+}
+
+
+export function useDevice() {
+  const [creds, setCreds] = useState<DeviceCreds | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let active = readCreds();
+    if (!active) {
+      active = getFallbackCreds();
+    }
+    setCreds(active);
+    setReady(true);
+  }, []);
+
+  return { creds, ready };
 }

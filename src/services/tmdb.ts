@@ -269,3 +269,39 @@ export const GENRES: Record<number, string> = {
   10759: "Action & Adventure",
   10765: "Sci-Fi & Fantasy",
 };
+
+
+/** Daily rotating seed to prevent stale content */
+export function getDailySeed(): number {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const diff = now.getTime() - start.getTime();
+  const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
+  return (dayOfYear % 4) + 1; // Rotates pages 1 to 4 every 4 days
+}
+
+export const dynamicGenreQuery = (genreId: number, mediaType: MediaType = "movie") => {
+  const page = getDailySeed();
+  return queryOptions({
+    queryKey: ["tmdb", "genre", genreId, mediaType, "daily-page", page],
+    queryFn: () =>
+      list(
+        "/discover/" + mediaType,
+        {
+          with_genres: String(genreId),
+          sort_by: "popularity.desc",
+          page: String(page),
+          "vote_count.gte": "100",
+        },
+        mediaType,
+      ),
+    staleTime: 1000 * 60 * 30, // 30 minutes
+  });
+};
+
+export const nowPlayingQuery = () =>
+  queryOptions({
+    queryKey: ["tmdb", "now-playing"],
+    queryFn: () => list("/movie/now_playing", { page: "1" }, "movie"),
+    staleTime: 1000 * 60 * 60,
+  });

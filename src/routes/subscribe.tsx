@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAccount, useSession } from "@/hooks/use-account";
 import { supabase } from "@/integrations/supabase/client";
-import { GoogleButton } from "@/components/GoogleButton";
 import { transferDevice } from "@/lib/account.functions";
 import { checkPaymentStatus, normalizeKenyanPhone, requestStkPush } from "@/services/payhero";
 
@@ -364,14 +363,11 @@ function SubscribePage() {
 
             {!signedIn && (
               <div className="mt-5 rounded-lg border border-dashed border-border p-4 text-center">
-                <p className="text-xs text-muted-foreground mb-3">
-                  Want your subscription synced across devices? Sign in with Google or Email:
-                </p>
-                <div className="flex flex-col gap-2">
-                  <GoogleButton />
-                  <Button variant="outline" size="sm" onClick={() => void navigate({ to: "/auth", search: { redirect: "/subscribe" } })}>
-                    <Mail className="mr-2 h-4 w-4" /> Sign in with Email Code
-                  </Button>
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-left">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">Switching Phones?</h4>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Paid subscriptions are bound to 1 active device at a time. Transferring to this phone automatically disconnects your old device.
+                  </p>
                 </div>
               </div>
             )}

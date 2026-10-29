@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
 import { useAccount } from "@/hooks/use-account";
+import { useDeviceTrial } from "@/hooks/use-device-trial";
 import { embedUrl, PROVIDERS, SERVER_COUNT } from "@/services/embeds";
 import { detailsQuery, seasonQuery, stillUrl } from "@/services/tmdb";
 
@@ -36,6 +37,7 @@ function Watch() {
   const navigate = useNavigate({ from: "/watch" });
 
   const { isPremium, loading: accountLoading, signedIn, state } = useAccount();
+  const trial = useDeviceTrial();
 
   const [loaded, setLoaded] = useState(false);
   const [server, setServer] = useState(0);
@@ -79,7 +81,7 @@ function Watch() {
   }, [showEpisodes, pingControls]);
 
   // Strict entitlement check: only generate embed URL when actively subscribed and authorized
-  const canPlay = !accountLoading && isPremium && state?.status === "ACTIVE";
+  const canPlay = trial.canStream || (!accountLoading && isPremium && state?.status === "ACTIVE");
   const src = canPlay ? embedUrl({ tmdbId, mediaType, season, episode }, server) : null;
 
   // Reset loading state and set safety reveal timeout whenever the source changes
@@ -247,11 +249,11 @@ function Watch() {
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-bold tracking-tight text-white">
-              {state?.status === "EXPIRED" ? "Subscription Expired" : "Subscription Required"}
+              {trial.status === "expired" || state?.status === "EXPIRED" ? "Free Trial Ended" : "Subscription Required"}
             </h2>
             <p className="text-sm text-zinc-400">
-              {state?.status === "EXPIRED"
-                ? "Your 30-day BUJUU subscription has ended. Renew for KSh 150 to keep streaming."
+              {trial.status === "expired"
+                ? "Your 3-day free trial has ended. Subscribe for KSh 150 (30 days) to continue streaming with zero ads."
                 : "An active subscription (KSh 150 for 30 days) is required to watch movies and series on BUJUU."}
             </p>
           </div>

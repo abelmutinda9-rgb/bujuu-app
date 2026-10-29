@@ -78,12 +78,8 @@ export function Header() {
                 <Link to="/download">Get the app</Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() =>
-                  void signOutSession(queryClient, () => void navigate({ to: "/auth", replace: true }))
-                }
-              >
-                Sign out
+              <DropdownMenuItem asChild>
+                <Link to="/subscribe">Subscription</Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

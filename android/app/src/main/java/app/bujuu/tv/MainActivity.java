@@ -23,6 +23,13 @@ import com.getcapacitor.BridgeWebViewClient;
 
 import java.io.ByteArrayInputStream;
 
+import android.content.Intent;
+import android.os.Build;
+import android.provider.Settings;
+import android.webkit.JavascriptInterface;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.security.MessageDigest;
 import app.bujuu.tv.adblock.AdBlockEngine;
 
 public class MainActivity extends BridgeActivity {
@@ -35,8 +42,11 @@ public class MainActivity extends BridgeActivity {
         // Initialize Native Brave AdBlock Engine with official filter rules
         AdBlockEngine.getInstance().initialize(getApplicationContext());
 
+        
         if (getBridge() != null && getBridge().getWebView() != null) {
             WebView webView = getBridge().getWebView();
+            webView.addJavascriptInterface(new BujuuNativeInterface(), "BujuuNative");
+
 
             // Set native download listener for Android WebView to capture Server 4 and provider downloads
             webView.setDownloadListener(new DownloadListener() {
@@ -247,5 +257,61 @@ public class MainActivity extends BridgeActivity {
                 Toast.makeText(MainActivity.this, "Download failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         });
+    }
+
+    public class BujuuNativeInterface {
+        @JavascriptInterface
+        public String getDeviceId() {
+            try {
+                String androidId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+                if (androidId == null) androidId = "";
+                String hardware = Build.HARDWARE != null ? Build.HARDWARE : "";
+                String fingerprint = Build.FINGERPRINT != null ? Build.FINGERPRINT : "";
+                String manufacturer = Build.MANUFACTURER != null ? Build.MANUFACTURER : "";
+                String model = Build.MODEL != null ? Build.MODEL : "";
+                
+                String rawId = "bujuu_" + androidId + "_" + hardware + "_" + manufacturer + "_" + model + "_" + fingerprint;
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] hash = digest.digest(rawId.getBytes("UTF-8"));
+                StringBuilder hex = new StringBuilder();
+                for (byte b : hash) {
+                    hex.append(String.format("%02x", b));
+                }
+                return hex.toString();
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to get native device ID", e);
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public int getAppVersionCode() {
+            return 11; // v2.0
+        }
+
+        @JavascriptInterface
+        public String getAppVersionName() {
+            return "2.0";
+        }
+
+        @JavascriptInterface
+        public boolean installApk(String filePath) {
+            try {
+                File file = new File(filePath);
+                if (!file.exists()) {
+                    Log.e(TAG, "APK file does not exist: " + filePath);
+                    return false;
+                }
+                Uri apkUri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".fileprovider", file);
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(intent);
+                return true;
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to launch APK installer", e);
+                return false;
+            }
+        }
     }
 }

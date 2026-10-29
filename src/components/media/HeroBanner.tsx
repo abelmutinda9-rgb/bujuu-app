@@ -43,7 +43,7 @@ export function HeroBanner({
     if (rotationItems.length < 2 || isPaused) return;
     const timer = window.setInterval(
       () => setCurrentIndex((index) => (index + 1) % rotationItems.length),
-      7000,
+      4000,
     );
     return () => window.clearInterval(timer);
   }, [rotationItems.length, isPaused]);

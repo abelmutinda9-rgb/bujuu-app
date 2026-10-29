@@ -9,7 +9,8 @@ import { MediaDetail } from "@/components/media/MediaDetail";
 import { MediaRow } from "@/components/media/MediaRow";
 import { Top10Row } from "@/components/media/Top10Row";
 import {
-  popularActionQuery,
+  dynamicGenreQuery,
+  nowPlayingQuery,
   topTenQuery,
   trendingQuery,
   type MediaItem,
@@ -21,26 +22,50 @@ export const Route = createFileRoute("/")({
       { title: "bujuu — Stream movies and series" },
       {
         name: "description",
-        content: "Watch trending movies, the daily top 10 and popular action titles on bujuu.",
+        content: "Watch trending movies, daily top 10, and all genres with zero ads on bujuu.",
       },
       { property: "og:title", content: "bujuu — Stream movies and series" },
       {
         property: "og:description",
-        content: "Watch trending movies, the daily top 10 and popular action titles on bujuu.",
+        content: "Watch trending movies, daily top 10, and all genres with zero ads on bujuu.",
       },
     ],
   }),
   component: Index,
 });
 
+function GenreRowSection({
+  title,
+  genreId,
+  mediaType = "movie",
+  onSelect,
+}: {
+  title: string;
+  genreId: number;
+  mediaType?: "movie" | "tv";
+  onSelect: (item: MediaItem) => void;
+}) {
+  const query = useQuery(dynamicGenreQuery(genreId, mediaType));
+  if (!query.isLoading && (!query.data || query.data.length === 0)) return null;
+
+  return (
+    <MediaRow
+      title={title}
+      items={query.data}
+      isLoading={query.isLoading}
+      onSelect={onSelect}
+    />
+  );
+}
+
 function Index() {
   const [selected, setSelected] = useState<MediaItem | null>(null);
 
   const trending = useQuery(trendingQuery());
   const topTen = useQuery(topTenQuery());
-  const action = useQuery(popularActionQuery());
+  const nowPlaying = useQuery(nowPlayingQuery());
 
-  const heroItems = trending.data?.slice(0, 5);
+  const heroItems = trending.data?.slice(0, 10);
 
   return (
     <AppShell>
@@ -50,27 +75,45 @@ function Index() {
         onSelect={setSelected}
       />
 
-      <div className="-mt-10 relative z-10">
+      <div className="-mt-10 relative z-10 space-y-4 pb-16">
+        {/* Real-time Trending Row */}
         <MediaRow
-          title="Trending Now"
+          title="🔥 Trending Today"
           items={trending.data?.slice(1)}
           isLoading={trending.isLoading}
           onSelect={setSelected}
         />
-        <FeaturedCarousel items={action.data?.slice(0, 12)} onSelect={setSelected} />
 
+        {/* Brand New Releases In Theatres / Digital */}
+        <MediaRow
+          title="🎬 New Releases & In Theatres"
+          items={nowPlaying.data}
+          isLoading={nowPlaying.isLoading}
+          onSelect={setSelected}
+        />
+
+        {/* Global Top 10 */}
         <Top10Row
           title="Top 10 Movies Today"
           items={topTen.data}
           isLoading={topTen.isLoading}
           onSelect={setSelected}
         />
-        <MediaRow
-          title="Popular Action"
-          items={action.data}
-          isLoading={action.isLoading}
-          onSelect={setSelected}
-        />
+
+        {/* Featured Showcase Rail */}
+        <FeaturedCarousel items={nowPlaying.data?.slice(0, 12)} onSelect={setSelected} />
+
+        {/* Comprehensive Movie & TV Genres with Daily Rotating Seed */}
+        <GenreRowSection title="💥 Action & Adventure" genreId={28} onSelect={setSelected} />
+        <GenreRowSection title="🚀 Sci-Fi & Fantasy" genreId={878} onSelect={setSelected} />
+        <GenreRowSection title="😱 Horror & Suspense" genreId={27} onSelect={setSelected} />
+        <GenreRowSection title="😂 Comedy Hits" genreId={35} onSelect={setSelected} />
+        <GenreRowSection title="⛩️ Anime & Animation" genreId={16} onSelect={setSelected} />
+        <GenreRowSection title="🔍 Crime & Thrillers" genreId={80} onSelect={setSelected} />
+        <GenreRowSection title="🎭 Top Drama" genreId={18} onSelect={setSelected} />
+        <GenreRowSection title="❤️ Romance" genreId={10749} onSelect={setSelected} />
+        <GenreRowSection title="👪 Family & Kids" genreId={10751} onSelect={setSelected} />
+        <GenreRowSection title="📜 Documentaries" genreId={99} onSelect={setSelected} />
       </div>
 
       <MediaDetail item={selected} onOpenChange={(open) => !open && setSelected(null)} />

@@ -4,6 +4,7 @@ import { useDpadNavigation } from "@/hooks/use-dpad";
 import { cn } from "@/lib/utils";
 
 import { Header } from "./Header";
+import { InAppUpdater } from "@/components/InAppUpdater";
 import { NavBar } from "./NavBar";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -22,6 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         {children}
       </main>
+      <InAppUpdater />
 
       {collapsed && (
         <button
