@@ -1,3 +1,6 @@
+import { useDeviceTrial } from "@/hooks/use-device-trial";
+import { useProfile } from "@/context/profile-context";
+import { KeyRound, Shield } from "lucide-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { signOutSession } from "@/lib/auth";
@@ -48,6 +51,10 @@ export const Route = createFileRoute("/profile")({
 });
 
 function ProfilePage() {
+  const trial = useDeviceTrial();
+  const { pin, setParentPin } = useProfile();
+  const [newPinInput, setNewPinInput] = useState("");
+
   const { signedIn, email, state, isPremium: active, refresh } = useAccount();
   const navigate = useNavigate();
 
@@ -67,6 +74,102 @@ function ProfilePage() {
     <AppShell>
       <div className="mx-auto max-w-2xl px-4 pb-24 pt-24 lg:px-8">
         <h1 className="text-2xl font-bold">My Profile</h1>
+
+        {/* Device Status & Access Card */}
+        <div className="mt-6 space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900/90 p-5 shadow-lg backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Smartphone className="h-5 w-5 text-rose-500" />
+              <h3 className="font-bold text-white">Device Access & Subscription</h3>
+            </div>
+            <span className={trial.status === 'active' ? 'rounded-full px-2.5 py-0.5 text-xs font-bold uppercase bg-emerald-500/20 text-emerald-400' : trial.status === 'trial' ? 'rounded-full px-2.5 py-0.5 text-xs font-bold uppercase bg-rose-500/20 text-rose-400' : 'rounded-full px-2.5 py-0.5 text-xs font-bold uppercase bg-zinc-800 text-zinc-400'}>
+              {trial.status === 'active' ? 'Active Subscriber' : trial.status === 'trial' ? '3-Day Free Trial' : 'Expired'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="rounded-xl bg-zinc-950 p-3 border border-zinc-800/80">
+              <span className="text-zinc-500 block">Access Remaining</span>
+              <span className="font-bold text-white text-sm">{trial.daysRemaining} {trial.daysRemaining === 1 ? 'day' : 'days'}</span>
+            </div>
+            <div className="rounded-xl bg-zinc-950 p-3 border border-zinc-800/80">
+              <span className="text-zinc-500 block">Device ID</span>
+              <span className="font-mono text-zinc-300 truncate block">{trial.deviceId.slice(0, 14)}…</span>
+            </div>
+          </div>
+
+          {trial.recoveryToken && (
+            <div className="rounded-xl bg-rose-950/20 border border-rose-500/30 p-3 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider block">Device Recovery Code</span>
+                <span className="font-mono text-base font-bold text-white tracking-widest">{trial.recoveryToken}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(trial.recoveryToken || "");
+                  toast.success("Recovery code copied!");
+                }}
+                className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700"
+              >
+                Copy
+              </button>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              className="flex-1 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold h-10 rounded-xl"
+              onClick={() => void navigate({ to: "/subscribe" })}
+            >
+              {trial.status === 'active' ? 'Extend Subscription' : 'Unlock for KSh 150 (30 Days)'}
+            </Button>
+            <Button
+              variant="outline"
+              className="border-zinc-800 bg-zinc-950 text-xs font-semibold h-10 rounded-xl text-zinc-300 hover:text-white"
+              onClick={() => void navigate({ to: "/subscribe", search: { redirect: "/profile" } })}
+            >
+              Transfer Code
+            </Button>
+          </div>
+
+          {/* Parental PIN Setup */}
+          <div className="pt-3 border-t border-zinc-800/80 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+              <Shield className="h-4 w-4 text-amber-400" /> Parental Control PIN (Adult Profile Protection)
+            </div>
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                maxLength={4}
+                placeholder={pin ? "•••• (PIN is set)" : "Enter 4-digit PIN"}
+                value={newPinInput}
+                onChange={(e) => setNewPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                className="h-9 bg-zinc-950 border-zinc-800 text-xs text-white rounded-lg"
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  if (newPinInput.length === 4) {
+                    setParentPin(newPinInput);
+                    setNewPinInput("");
+                    toast.success("Parental PIN set successfully!");
+                  } else if (newPinInput === "" && pin) {
+                    setParentPin("");
+                    toast.info("Parental PIN removed.");
+                  } else {
+                    toast.error("PIN must be exactly 4 digits.");
+                  }
+                }}
+                className="text-xs h-9 rounded-lg"
+              >
+                {newPinInput ? "Save PIN" : pin ? "Remove PIN" : "Set PIN"}
+              </Button>
+            </div>
+          </div>
+        </div>
+
 
         {!signedIn ? (
           <div className="mt-6 space-y-4 rounded-lg border border-border p-6">

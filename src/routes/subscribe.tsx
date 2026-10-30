@@ -1,16 +1,13 @@
-import { useMutation } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
-import { CheckCircle2, Loader2, Mail, Smartphone } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, Copy, KeyRound, Loader2, ShieldCheck, Smartphone, Sparkles, Tv } from "lucide-react";
+import { useState, useRef } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAccount, useSession } from "@/hooks/use-account";
-import { supabase } from "@/integrations/supabase/client";
-import { transferDevice } from "@/lib/account.functions";
+import { useDeviceTrial } from "@/hooks/use-device-trial";
 import { checkPaymentStatus, normalizeKenyanPhone, requestStkPush } from "@/services/payhero";
 
 export const Route = createFileRoute("/subscribe")({
@@ -20,359 +17,300 @@ export const Route = createFileRoute("/subscribe")({
       { title: "Unlock bujuu — KSh 150 for 30 days" },
       {
         name: "description",
-        content:
-          "Pay KSh 150 with M-Pesa for 30 days of unlimited movies and shows on bujuu, on one device.",
+        content: "Pay KSh 150 with M-Pesa for 30 days of unlimited movies and shows on bujuu, on one device.",
       },
       { property: "og:title", content: "Unlock bujuu — KSh 150 for 30 days" },
-      {
-        property: "og:description",
-        content: "Pay KSh 150 with M-Pesa for 30 days of unlimited movies and shows on bujuu.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
+      { property: "og:description", content: "Pay KSh 150 with M-Pesa for 30 days of unlimited movies and shows on bujuu." },
     ],
   }),
   component: SubscribePage,
 });
 
-function errorText(error: unknown) {
-  if (!error) return "Something went wrong. Please try again.";
-  if (error instanceof Error) {
-    const msg = error.message;
-    if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Load failed")) {
-      return "Unable to reach the payment server. Please verify your internet connection or try again in a moment.";
-    }
-    if (msg.includes("timeout") || msg.includes("timed out")) {
-      return "The payment request timed out. Please try again.";
-    }
-    return msg;
-  }
-  return String(error);
-}
+function SubscribePage() {
+  const search = useSearch({ from: "/subscribe" });
+  const navigate = useNavigate();
+  const trial = useDeviceTrial();
 
-function TransferCard({ email, onDone }: { email: string; onDone: () => void }) {
-  const { creds } = useAccount();
-  const [sent, setSent] = useState(false);
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [activeTab, setActiveTab] = useState<"pay" | "restore">("pay");
+  const [phone, setPhone] = useState("");
+  const [recoveryInput, setRecoveryInput] = useState("");
+  
+  const [waiting, setWaiting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [successData, setSuccessData] = useState<{ recoveryToken: string; expiresAt?: string } | null>(null);
+  
+  const [restoring, setRestoring] = useState(false);
+  const pollTimerRef = useRef<number | null>(null);
 
-  const send = async () => {
-    setBusy(true);
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-    setBusy(false);
-    if (error) {
-      toast.error("Couldn't send the code. Please wait a minute and try again.");
+  const target = search.redirect && search.redirect.startsWith("/") ? search.redirect : "/";
+
+  // Handle PayHero STK Push
+  const handleStartPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const cleanPhone = normalizeKenyanPhone(phone);
+      setWaiting(true);
+      setStatusMessage("Sending M-Pesa prompt to your phone…");
+
+      const res = await requestStkPush({
+        phone: cleanPhone,
+        deviceId: trial.deviceId,
+      });
+
+      setStatusMessage("Enter your M-Pesa PIN on your phone…");
+      toast.success("M-Pesa STK prompt sent to " + cleanPhone);
+
+      // Start authoritative polling
+      let attempts = 0;
+      const maxAttempts = 24; // 2 minutes (every 5s)
+      const poll = async () => {
+        attempts++;
+        try {
+          const statusRes = await checkPaymentStatus(res.reference);
+          if (statusRes.status === "SUCCESS") {
+            setStatusMessage("Payment confirmed! Activating 30-day pass…");
+            const dbRes = await trial.confirmPayment(res.reference, cleanPhone, statusRes.raw);
+            const token = (dbRes as any)?.recovery_token || "BUJ-" + trial.deviceId.slice(0, 6).toUpperCase();
+            setSuccessData({
+              recoveryToken: token,
+              expiresAt: (dbRes as any)?.subscription_expires_at,
+            });
+            setWaiting(false);
+            toast.success("Subscription activated for 30 days!");
+            return;
+          }
+          if (statusRes.status === "FAILED") {
+            setWaiting(false);
+            setStatusMessage("");
+            toast.error("Payment was cancelled or failed. Please try again.");
+            return;
+          }
+        } catch (err) {
+          console.warn("Poll status check error:", err);
+        }
+
+        if (attempts < maxAttempts) {
+          pollTimerRef.current = window.setTimeout(poll, 5000);
+        } else {
+          setWaiting(false);
+          setStatusMessage("");
+          toast.error("Payment confirmation timed out. If M-Pesa deducted your money, please use the restore tab.");
+        }
+      };
+
+      pollTimerRef.current = window.setTimeout(poll, 4000);
+    } catch (err: any) {
+      setWaiting(false);
+      setStatusMessage("");
+      toast.error(err?.message || "Failed to start M-Pesa payment. Check your phone number.");
+    }
+  };
+
+  // Handle Transfer / Restore via Recovery Code
+  const handleRestore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recoveryInput.trim()) {
+      toast.error("Please enter your recovery code.");
       return;
     }
-    setSent(true);
-    toast.success(`We emailed a code to ${email}.`);
-  };
-
-  const verify = async () => {
-    setBusy(true);
+    setRestoring(true);
     try {
-      const { error } = await supabase.auth.verifyOtp({ email, token: code.trim(), type: "email" });
-      if (error) throw new Error("That code is wrong or has expired.");
-      if (creds?.deviceId && creds?.deviceSecret) {
-        await transferDevice({ data: { deviceId: creds.deviceId, deviceSecret: creds.deviceSecret, platform: navigator.userAgent.slice(0, 120) } });
-      }
-      toast.success("This device can now watch. The other device has been signed out of playback.");
-      onDone();
-    } catch (e) {
-      toast.error(errorText(e));
+      const res = await trial.transferSubscription(recoveryInput.trim());
+      toast.success("Subscription successfully restored to this device!");
+      setSuccessData({
+        recoveryToken: res.recovery_token || recoveryInput.trim(),
+        expiresAt: res.subscription_expires_at,
+      });
+    } catch (err: any) {
+      toast.error(err?.message || "Invalid or expired recovery code.");
     } finally {
-      setBusy(false);
+      setRestoring(false);
     }
   };
 
-  return (
-    <div className="mt-6 space-y-3 rounded-lg border border-border p-5">
-      <h2 className="text-sm font-semibold">Watch on this device instead?</h2>
-      <p className="text-xs text-muted-foreground">
-        Your subscription is active on another device. Confirm with a code sent to {email} to move it
-        here. Your 30 days stay exactly the same.
-      </p>
-      {!sent ? (
-        <Button variant="secondary" className="w-full" disabled={busy || !creds} onClick={send}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Mail className="mr-2 h-4 w-4" /> Email me a code</>}
-        </Button>
-      ) : (
-        <div className="space-y-2">
-          <Input
-            inputMode="numeric"
-            placeholder="6-digit code"
-            maxLength={6}
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-          />
-          <Button className="w-full" disabled={busy || code.trim().length < 6} onClick={verify}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm and watch here"}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SubscribePage() {
-  const { redirect } = useSearch({ from: "/subscribe" });
-  const navigate = useNavigate();
-  const { session } = useSession();
-  const { signedIn, email, state, isPremium, needsTransfer, loading, refresh, creds } = useAccount();
-
-  const [phone, setPhone] = useState("");
-  const [reference, setReference] = useState<string | null>(null);
-  const [waiting, setWaiting] = useState(false);
-  const doneRef = useRef(false);
-
-  useEffect(() => {
-    if (state?.phone && !phone) {
-      const clean = state.phone.replace(/^254/, "0");
-      setPhone(clean);
+  const copyToken = () => {
+    if (successData?.recoveryToken) {
+      navigator.clipboard.writeText(successData.recoveryToken);
+      toast.success("Recovery code copied to clipboard!");
     }
-  }, [state?.phone, phone]);
-
-  const pay = useMutation({
-    mutationFn: async () => {
-      const cleanPhone = normalizeKenyanPhone(phone);
-      return await requestStkPush({
-        phone: cleanPhone,
-        userId: session?.user?.id ?? null,
-        deviceId: creds?.deviceId ?? null,
-      });
-    },
-    onSuccess: (data) => {
-      setReference(data.reference);
-      setWaiting(true);
-      toast.success("Check your phone and enter your M-Pesa PIN.");
-    },
-    onError: (error) => toast.error(errorText(error)),
-  });
-
-  // Poll server-side verification until payment succeeds or fails
-  useEffect(() => {
-    if (!waiting || !reference) return;
-    let cancelled = false;
-    const started = Date.now();
-
-    const tick = async () => {
-      if (cancelled) return;
-      try {
-        const result = await checkPaymentStatus(reference);
-
-        if (result.status === "SUCCESS") {
-          setWaiting(false);
-          const userId = session?.user?.id;
-          const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
-
-          // Save in localStorage for immediate active access across app
-          try {
-            if (userId) {
-              localStorage.setItem(
-                `bujuu_sub_${userId}`,
-                JSON.stringify({ isPremium: true, phone, expiresAt, reference })
-              );
-            }
-            localStorage.setItem(
-              "bujuu_sub_device",
-              JSON.stringify({ isPremium: true, phone, expiresAt, reference })
-            );
-          } catch {}
-
-          // Synchronize with Supabase if possible
-          if (userId) {
-            try {
-              const { data: existingSub } = await supabase
-                .from("subscribers")
-                .select("id")
-                .eq("user_id", userId)
-                .maybeSingle();
-
-              let subId = existingSub?.id;
-              if (!subId) {
-                const { data: createdSub } = await supabase
-                  .from("subscribers")
-                  .insert({ user_id: userId, phone })
-                  .select("id")
-                  .maybeSingle();
-                subId = createdSub?.id;
-              }
-
-              if (subId) {
-                await supabase.from("subscriptions").insert({
-                  subscriber_id: subId,
-                  status: "active",
-                  expires_at: expiresAt,
-                  auto_renew: false,
-                });
-              }
-
-              // Qualify referral if referral code was used
-              const refCode = localStorage.getItem("bujuu_referral_code") || localStorage.getItem("bujuu.ref");
-              if (refCode) {
-                const { data: refOwner } = await supabase
-                  .from("referral_codes")
-                  .select("user_id")
-                  .eq("code", refCode)
-                  .maybeSingle();
-
-                if (refOwner?.user_id && refOwner.user_id !== userId) {
-                  await supabase.from("referrals").upsert(
-                    {
-                      referrer_id: refOwner.user_id,
-                      referred_user_id: userId,
-                      status: "qualified",
-                      qualified_at: new Date().toISOString(),
-                    },
-                    { onConflict: "referred_user_id" }
-                  );
-
-                  await supabase.from("referral_ledger").insert({
-                    user_id: refOwner.user_id,
-                    amount: 30,
-                    kind: "reward",
-                  });
-                }
-              }
-            } catch (syncErr) {
-              console.warn("Supabase sub sync note:", syncErr);
-            }
-          }
-
-          refresh();
-          if (!doneRef.current) {
-            doneRef.current = true;
-            toast.success("Payment confirmed! Activating your subscription...");
-            if (redirect) void navigate({ to: redirect });
-            else void navigate({ to: "/" });
-          }
-          return;
-        }
-
-        if (result.status === "FAILED") {
-          setWaiting(false);
-          toast.error("That payment didn't go through. You can try again.");
-          return;
-        }
-      } catch {
-        /* keep polling */
-      }
-
-      if (Date.now() - started > 180_000) {
-        setWaiting(false);
-        toast.error("We didn't see the payment yet. If you paid, it will show here shortly.");
-        return;
-      }
-      window.setTimeout(() => void tick(), 3000);
-    };
-
-    const id = window.setTimeout(() => void tick(), 3000);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(id);
-    };
-  }, [waiting, reference, session, refresh, redirect, navigate, phone, creds]);
+  };
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-md px-4 pb-24 pt-24 lg:px-8">
-        <h1 className="text-2xl font-bold">
-          {isPremium ? "Your subscription" : "Unlock everything on bujuu"}
-        </h1>
-
-        {loading ? (
-          <div className="mt-10 grid place-items-center">
-            <Loader2 className="h-6 w-6 animate-spin text-brand" />
-          </div>
-        ) : isPremium ? (
-          <div className="mt-6 rounded-lg border border-border p-5">
-            <div className="flex items-center gap-2 text-brand">
-              <CheckCircle2 className="h-5 w-5" />
-              <span className="font-semibold">Premium Active</span>
-            </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {email ? `${email} · ` : ""}valid until{" "}
-              {state?.expiresAt ? new Date(state.expiresAt).toLocaleDateString() : "30 days from today"}
+      <div className="min-h-[85vh] flex items-center justify-center p-4 sm:p-6 lg:p-8">
+        <div className="w-full max-w-lg rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
+          {/* Header */}
+          <div className="text-center space-y-2 mb-6">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-500">
+              <Sparkles className="h-3.5 w-3.5" /> 30 Days Unlimited Access
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+              Unlock BUJUU
+            </h1>
+            <p className="text-sm text-zinc-400">
+              Zero ads, 4K streaming, multi-server playback on Android phones and Smart TVs.
             </p>
-            {state?.phone && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                M-Pesa: {state.phone}
-              </p>
-            )}
-            <Button className="mt-5 w-full" onClick={() => void navigate({ to: redirect ?? "/" })}>
-              Start watching
-            </Button>
           </div>
-        ) : needsTransfer && email ? (
-          <TransferCard email={email} onDone={() => { refresh(); if (redirect) void navigate({ to: redirect }); }} />
-        ) : (
-          <>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {state?.status === "EXPIRED" ? "Your 30 days have ended. " : ""}
-              KSh 150 for 30 days. Unlimited movies and shows, on one device.
-            </p>
 
-            <div className="mt-6 space-y-4 rounded-lg border border-border p-5">
-              <div>
-                <label className="text-sm font-medium" htmlFor="phone">
-                  M-Pesa number
-                </label>
-                <div className="mt-1.5 relative">
-                  <Input
-                    id="phone"
-                    inputMode="tel"
-                    placeholder="0712345678"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    disabled={waiting}
-                    className="pr-10"
-                  />
-                  <Smartphone className="absolute right-3 top-2.5 h-5 w-5 text-muted-foreground" />
+          {/* Success Screen */}
+          {successData ? (
+            <div className="space-y-6 text-center animate-in fade-in zoom-in-95">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400">
+                <CheckCircle2 className="h-10 w-10" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-xl font-bold text-white">Payment Confirmed!</h3>
+                <p className="text-sm text-zinc-400">
+                  Your device now has 30 days of unlimited access.
+                </p>
+              </div>
+
+              {/* Recovery Code Box */}
+              <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 p-4 text-left space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-rose-400">
+                    Your Device Recovery Code
+                  </span>
+                  <button
+                    onClick={copyToken}
+                    className="flex items-center gap-1 text-xs text-zinc-300 hover:text-white"
+                  >
+                    <Copy className="h-3.5 w-3.5" /> Copy
+                  </button>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Safaricom or Airtel number (e.g. 0712345678 or 0112345678)
+                <div className="font-mono text-2xl font-black tracking-widest text-white">
+                  {successData.recoveryToken}
+                </div>
+                <p className="text-[11px] text-zinc-400">
+                  Save this code! If you reinstall the app or switch to another TV or phone, you can enter this code to transfer your subscription.
                 </p>
               </div>
 
               <Button
-                className="w-full"
-                disabled={pay.isPending || waiting || phone.trim().length < 9}
-                onClick={() => pay.mutate()}
+                onClick={() => void navigate({ to: target as any })}
+                className="w-full h-12 text-base font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl shadow-lg shadow-rose-600/30"
               >
-                {waiting || pay.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {waiting ? "Waiting for M-Pesa PIN…" : "Sending request…"}
-                  </>
-                ) : (
-                  <>
-                    <Smartphone className="mr-2 h-4 w-4" /> Pay KSh 150 with M-Pesa
-                  </>
-                )}
+                Start Watching Now
               </Button>
-
-              {waiting && (
-                <div className="rounded-md bg-secondary/50 p-3 text-center">
-                  <p className="text-xs font-medium">Check your phone now</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    Enter your M-Pesa PIN when prompted. This page will unlock automatically.
-                  </p>
-                </div>
-              )}
             </div>
-
-            {!signedIn && (
-              <div className="mt-5 rounded-lg border border-dashed border-border p-4 text-center">
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-left">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">Switching Phones?</h4>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Paid subscriptions are bound to 1 active device at a time. Transferring to this phone automatically disconnects your old device.
-                  </p>
-                </div>
+          ) : (
+            <>
+              {/* Tab Selector */}
+              <div className="flex rounded-xl bg-zinc-950/80 p-1 mb-6 border border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("pay")}
+                  className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                    activeTab === "pay"
+                      ? "bg-rose-600 text-white shadow"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Pay with M-Pesa (KSh 150)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("restore")}
+                  className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                    activeTab === "restore"
+                      ? "bg-rose-600 text-white shadow"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Transfer / Restore Code
+                </button>
               </div>
-            )}
-          </>
-        )}
+
+              {/* Tab 1: Pay with M-Pesa */}
+              {activeTab === "pay" && (
+                <form onSubmit={handleStartPayment} className="space-y-5">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-zinc-400">30-Day Plan</span>
+                      <span className="font-bold text-white text-base">KSh 150</span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm border-t border-zinc-800/80 pt-2 text-xs text-zinc-400">
+                      <span>Device Protection</span>
+                      <span className="text-emerald-400 font-medium flex items-center gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5" /> 1 Active Screen
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                      <Smartphone className="h-4 w-4 text-rose-500" /> Safaricom / Airtel Phone Number
+                    </label>
+                    <Input
+                      type="tel"
+                      placeholder="e.g. 0712345678 or 0112345678"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      disabled={waiting}
+                      className="h-12 bg-zinc-950 border-zinc-800 text-white placeholder:text-zinc-600 rounded-xl text-base"
+                      required
+                    />
+                  </div>
+
+                  {waiting && (
+                    <div className="rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 flex items-center gap-3 text-rose-400 text-xs">
+                      <Loader2 className="h-5 w-5 animate-spin shrink-0" />
+                      <div className="space-y-0.5">
+                        <p className="font-semibold">{statusMessage}</p>
+                        <p className="text-[11px] text-zinc-400">Do not close this screen until PIN is entered.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    disabled={waiting}
+                    className="w-full h-12 text-base font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl shadow-lg shadow-rose-600/30"
+                  >
+                    {waiting ? "Waiting for M-Pesa PIN…" : "Pay KSh 150 with M-Pesa"}
+                  </Button>
+                </form>
+              )}
+
+              {/* Tab 2: Restore via Recovery Code */}
+              {activeTab === "restore" && (
+                <form onSubmit={handleRestore} className="space-y-5">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-2 text-xs text-zinc-400">
+                    <div className="flex items-center gap-2 text-white font-semibold">
+                      <Tv className="h-4 w-4 text-rose-500" /> Transfer to TV or New Phone
+                    </div>
+                    <p>
+                      Enter the 8-character recovery code issued when you paid. This transfers your remaining 30-day access to this device and disconnects the previous device.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                      <KeyRound className="h-4 w-4 text-rose-500" /> Recovery Code (e.g. BUJ-7F12B8)
+                    </label>
+                    <Input
+                      type="text"
+                      placeholder="BUJ-XXXXXX"
+                      value={recoveryInput}
+                      onChange={(e) => setRecoveryInput(e.target.value.toUpperCase())}
+                      disabled={restoring}
+                      className="h-12 bg-zinc-950 border-zinc-800 text-white placeholder:text-zinc-600 rounded-xl text-base font-mono uppercase tracking-wider"
+                      required
+                    />
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={restoring}
+                    className="w-full h-12 text-base font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl shadow-lg shadow-rose-600/30"
+                  >
+                    {restoring ? "Transferring…" : "Transfer to This Device"}
+                  </Button>
+                </form>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </AppShell>
   );

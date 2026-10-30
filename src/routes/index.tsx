@@ -8,6 +8,7 @@ import { HeroBanner } from "@/components/media/HeroBanner";
 import { MediaDetail } from "@/components/media/MediaDetail";
 import { MediaRow } from "@/components/media/MediaRow";
 import { Top10Row } from "@/components/media/Top10Row";
+import { useProfile } from "@/context/profile-context";
 import {
   dynamicGenreQuery,
   nowPlayingQuery,
@@ -60,6 +61,7 @@ function GenreRowSection({
 
 function Index() {
   const [selected, setSelected] = useState<MediaItem | null>(null);
+  const { isKids } = useProfile();
 
   const trending = useQuery(trendingQuery());
   const topTen = useQuery(topTenQuery());
@@ -78,23 +80,25 @@ function Index() {
       <div className="-mt-10 relative z-10 space-y-4 pb-16">
         {/* Real-time Trending Row */}
         <MediaRow
-          title="🔥 Trending Today"
-          items={trending.data?.slice(1)}
+          title={isKids ? "🌟 Kids Favorites" : "🔥 Trending Today"}
+          items={isKids ? nowPlaying.data?.filter(i => !i.adult) : trending.data?.slice(1)}
           isLoading={trending.isLoading}
           onSelect={setSelected}
         />
 
         {/* Brand New Releases In Theatres / Digital */}
-        <MediaRow
-          title="🎬 New Releases & In Theatres"
-          items={nowPlaying.data}
-          isLoading={nowPlaying.isLoading}
-          onSelect={setSelected}
-        />
+        {!isKids && (
+          <MediaRow
+            title="🎬 New Releases & In Theatres"
+            items={nowPlaying.data}
+            isLoading={nowPlaying.isLoading}
+            onSelect={setSelected}
+          />
+        )}
 
         {/* Global Top 10 */}
         <Top10Row
-          title="Top 10 Movies Today"
+          title={isKids ? "Top 10 Kids Hits" : "Top 10 Movies Today"}
           items={topTen.data}
           isLoading={topTen.isLoading}
           onSelect={setSelected}
@@ -103,17 +107,30 @@ function Index() {
         {/* Featured Showcase Rail */}
         <FeaturedCarousel items={nowPlaying.data?.slice(0, 12)} onSelect={setSelected} />
 
-        {/* Comprehensive Movie & TV Genres with Daily Rotating Seed */}
-        <GenreRowSection title="💥 Action & Adventure" genreId={28} onSelect={setSelected} />
-        <GenreRowSection title="🚀 Sci-Fi & Fantasy" genreId={878} onSelect={setSelected} />
-        <GenreRowSection title="😱 Horror & Suspense" genreId={27} onSelect={setSelected} />
-        <GenreRowSection title="😂 Comedy Hits" genreId={35} onSelect={setSelected} />
-        <GenreRowSection title="⛩️ Anime & Animation" genreId={16} onSelect={setSelected} />
-        <GenreRowSection title="🔍 Crime & Thrillers" genreId={80} onSelect={setSelected} />
-        <GenreRowSection title="🎭 Top Drama" genreId={18} onSelect={setSelected} />
-        <GenreRowSection title="❤️ Romance" genreId={10749} onSelect={setSelected} />
-        <GenreRowSection title="👪 Family & Kids" genreId={10751} onSelect={setSelected} />
-        <GenreRowSection title="📜 Documentaries" genreId={99} onSelect={setSelected} />
+        {/* Kids Mode Specific Rails */}
+        {isKids ? (
+          <>
+            <GenreRowSection title="👪 Family & Kids" genreId={10751} onSelect={setSelected} />
+            <GenreRowSection title="⛩️ Animated Adventures" genreId={16} onSelect={setSelected} />
+            <GenreRowSection title="😂 Funny & Laughs" genreId={35} onSelect={setSelected} />
+            <GenreRowSection title="🚀 Sci-Fi & Magic" genreId={878} onSelect={setSelected} />
+            <GenreRowSection title="📜 Nature & Wonder" genreId={99} onSelect={setSelected} />
+          </>
+        ) : (
+          /* Adult Mode Full Comprehensive Movie & TV Genres */
+          <>
+            <GenreRowSection title="💥 Action & Adventure" genreId={28} onSelect={setSelected} />
+            <GenreRowSection title="🚀 Sci-Fi & Fantasy" genreId={878} onSelect={setSelected} />
+            <GenreRowSection title="😱 Horror & Suspense" genreId={27} onSelect={setSelected} />
+            <GenreRowSection title="😂 Comedy Hits" genreId={35} onSelect={setSelected} />
+            <GenreRowSection title="⛩️ Anime & Animation" genreId={16} onSelect={setSelected} />
+            <GenreRowSection title="🔍 Crime & Thrillers" genreId={80} onSelect={setSelected} />
+            <GenreRowSection title="🎭 Top Drama" genreId={18} onSelect={setSelected} />
+            <GenreRowSection title="❤️ Romance" genreId={10749} onSelect={setSelected} />
+            <GenreRowSection title="👪 Family & Kids" genreId={10751} onSelect={setSelected} />
+            <GenreRowSection title="📜 Documentaries" genreId={99} onSelect={setSelected} />
+          </>
+        )}
       </div>
 
       <MediaDetail item={selected} onOpenChange={(open) => !open && setSelected(null)} />

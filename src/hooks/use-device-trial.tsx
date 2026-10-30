@@ -1,17 +1,21 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
-import { getAccess, registerDevice } from "@/lib/bujuu.functions";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface DeviceStatus {
   deviceId: string;
-  status: "trial" | "active" | "expired" | "transferred_out";
+  status: "trial" | "active" | "expired" | "blocked";
   canStream: boolean;
   daysRemaining: number;
   trialEndsAt?: string;
   subscriptionExpiresAt?: string;
   phone?: string;
+  recoveryToken?: string;
 }
 
+/**
+ * Returns a stable hardware identifier from Android native bridge or persistent local storage.
+ */
 export function getNativeDeviceId(): string {
   if (typeof window !== "undefined" && (window as any).BujuuNative?.getDeviceId) {
     try {
@@ -19,7 +23,7 @@ export function getNativeDeviceId(): string {
       if (id && id.length > 8) return id;
     } catch {}
   }
-  // Persistent local fallback
+  // Persistent fallback for web / preview
   try {
     const stored = localStorage.getItem("bujuu_device_fingerprint");
     if (stored) return stored;
@@ -36,70 +40,126 @@ export function useDeviceTrial() {
   const deviceId = getNativeDeviceId();
 
   const query = useQuery({
-    queryKey: ["bujuu-device-trial", deviceId],
+    queryKey: ["bujuu-device-handshake", deviceId],
     queryFn: async (): Promise<DeviceStatus> => {
       try {
-        const res = await registerDevice({
-          data: {
-            deviceId,
-            deviceSecret: "sec_" + deviceId.slice(0, 16),
-            platform: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 80) : "Android",
-          },
+        // Direct call to Supabase backend RPC
+        const { data, error } = await supabase.rpc("device_handshake", {
+          p_device_id: deviceId,
+          p_platform: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 80) : "Android",
         });
 
-        // Calculate 3-day trial from registration or server response
-        const now = Date.now();
-        const storedTrial = localStorage.getItem("bujuu_trial_start_" + deviceId);
-        let trialStart = storedTrial ? parseInt(storedTrial, 10) : now;
-        if (!storedTrial) {
-          try { localStorage.setItem("bujuu_trial_start_" + deviceId, String(now)); } catch {}
+        if (error) {
+          console.warn("Supabase handshake error, using local fallback:", error);
+          throw error;
         }
 
-        const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
-        const trialRemainingMs = Math.max(0, (trialStart + THREE_DAYS) - now);
-        const trialDaysLeft = Math.ceil(trialRemainingMs / (24 * 60 * 60 * 1000));
-        const isTrialActive = trialRemainingMs > 0;
-
-        // Check if paid subscription exists
-        const isPaid = (res as any)?.active === true;
-        const canStream = isPaid || isTrialActive;
-
-        return {
+        const res = data as any;
+        const result: DeviceStatus = {
           deviceId,
-          status: isPaid ? "active" : isTrialActive ? "trial" : "expired",
-          canStream,
-          daysRemaining: isPaid ? ((res as any)?.daysRemaining ?? 30) : trialDaysLeft,
-          trialEndsAt: new Date(trialStart + THREE_DAYS).toISOString(),
-          subscriptionExpiresAt: (res as any)?.expiresAt,
+          status: res.status || "trial",
+          canStream: Boolean(res.can_stream),
+          daysRemaining: Number(res.days_remaining) || 0,
+          trialEndsAt: res.trial_ends_at,
+          subscriptionExpiresAt: res.subscription_expires_at,
+          phone: res.phone,
+          recoveryToken: res.recovery_token,
         };
+
+        // Persist to local cache for instant offline playback
+        try {
+          localStorage.setItem("bujuu_device_cache", JSON.stringify(result));
+          if (res.can_stream) {
+            localStorage.setItem(
+              "bujuu_sub_device",
+              JSON.stringify({
+                isPremium: res.status === "active",
+                canStream: true,
+                status: res.status,
+                expiresAt: res.subscription_expires_at || res.trial_ends_at,
+                recoveryToken: res.recovery_token,
+              })
+            );
+          }
+        } catch {}
+
+        return result;
       } catch (e) {
-        // Safe offline trial fallback
-        const now = Date.now();
-        const storedTrial = localStorage.getItem("bujuu_trial_start_" + deviceId);
-        let trialStart = storedTrial ? parseInt(storedTrial, 10) : now;
-        if (!storedTrial) {
-          try { localStorage.setItem("bujuu_trial_start_" + deviceId, String(now)); } catch {}
-        }
-        const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
-        const trialRemainingMs = Math.max(0, (trialStart + THREE_DAYS) - now);
-        const isTrialActive = trialRemainingMs > 0;
+        // Safe offline / local fallback
+        try {
+          const cached = localStorage.getItem("bujuu_device_cache");
+          if (cached) {
+            return JSON.parse(cached) as DeviceStatus;
+          }
+        } catch {}
+
         return {
           deviceId,
-          status: isTrialActive ? "trial" : "expired",
-          canStream: isTrialActive,
-          daysRemaining: Math.ceil(trialRemainingMs / (24 * 60 * 60 * 1000)),
+          status: "trial",
+          canStream: true,
+          daysRemaining: 3,
         };
       }
     },
     staleTime: 60 * 1000,
+    refetchInterval: (query) => {
+      // Re-check every 5 minutes if active, or every 30 seconds if pending/expired
+      return query.state.data?.canStream ? 5 * 60 * 1000 : 30 * 1000;
+    },
   });
+
+  const refresh = useCallback(() => {
+    return qc.invalidateQueries({ queryKey: ["bujuu-device-handshake"] });
+  }, [qc]);
+
+  /** Confirm payment with Supabase and retrieve recovery token */
+  const confirmPayment = useCallback(
+    async (reference: string, phone: string, raw?: any) => {
+      const { data, error } = await supabase.rpc("confirm_payment_success", {
+        p_device_id: deviceId,
+        p_reference: reference,
+        p_phone: phone,
+        p_raw: raw || {},
+      });
+
+      if (error) throw error;
+      await refresh();
+      return data;
+    },
+    [deviceId, refresh]
+  );
+
+  /** Transfer an existing subscription to this device using a recovery code */
+  const transferSubscription = useCallback(
+    async (recoveryToken: string) => {
+      const { data, error } = await supabase.rpc("recover_subscription", {
+        p_token: recoveryToken,
+        p_new_device_id: deviceId,
+      });
+
+      if (error) throw error;
+      const res = data as any;
+      if (!res.success) {
+        throw new Error(res.error || "Failed to transfer subscription");
+      }
+      await refresh();
+      return res;
+    },
+    [deviceId, refresh]
+  );
 
   return {
     ...query,
     canStream: Boolean(query.data?.canStream),
     status: query.data?.status ?? "trial",
     daysRemaining: query.data?.daysRemaining ?? 3,
+    trialEndsAt: query.data?.trialEndsAt,
+    subscriptionExpiresAt: query.data?.subscriptionExpiresAt,
+    recoveryToken: query.data?.recoveryToken,
+    phone: query.data?.phone,
     deviceId,
-    refresh: () => qc.invalidateQueries({ queryKey: ["bujuu-device-trial"] }),
+    refresh,
+    confirmPayment,
+    transferSubscription,
   };
 }

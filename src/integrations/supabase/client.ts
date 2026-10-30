@@ -31,7 +31,7 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 function createSupabaseClient() {
   // Use import.meta.env for client-side (Vite build-time replacement)
   // Fall back to process.env for SSR (server-side rendering)
-  const projectId = import.meta.env['VITE_SUPABASE_PROJECT_ID'] || process.env['SUPABASE_PROJECT_ID'] || "uutspemcwnizcvnmzzah";
+  const projectId = import.meta.env['VITE_SUPABASE_PROJECT_ID'] || process.env['SUPABASE_PROJECT_ID'] || "uwhawjcknqilypbgoyxo";
   let SUPABASE_URL = import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
   if (!SUPABASE_URL || SUPABASE_URL.includes("lovable.cloud")) {
     SUPABASE_URL = "https://" + projectId + ".supabase.co";

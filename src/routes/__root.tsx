@@ -1,3 +1,5 @@
+import { ProfileProvider } from "@/context/profile-context";
+import { PinModal } from "@/components/PinModal";
 import { Capacitor } from "@capacitor/core";
 import { App as CapApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
@@ -233,9 +235,12 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
-      <Splash />
-      <Toaster />
+      <ProfileProvider>
+        <Outlet />
+        <Splash />
+        <Toaster />
+        <PinModal />
+      </ProfileProvider>
     </QueryClientProvider>
   );
 }

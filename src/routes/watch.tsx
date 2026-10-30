@@ -81,7 +81,7 @@ function Watch() {
   }, [showEpisodes, pingControls]);
 
   // Strict entitlement check: only generate embed URL when actively subscribed and authorized
-  const canPlay = trial.canStream || (!accountLoading && isPremium && state?.status === "ACTIVE");
+  const canPlay = trial.canStream || Boolean(isPremium && state?.status === "ACTIVE");
   const src = canPlay ? embedUrl({ tmdbId, mediaType, season, episode }, server) : null;
 
   // Reset loading state and set safety reveal timeout whenever the source changes
@@ -240,7 +240,7 @@ function Watch() {
   }
 
   // 2. Unauthenticated or unpaid locked state — strictly deny playback
-  if (!isPremium || !canPlay) {
+  if (!canPlay) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950 p-6 text-center">
         <div className="max-w-md space-y-5 rounded-2xl border border-zinc-800 bg-zinc-900/90 p-8 shadow-2xl backdrop-blur-md">

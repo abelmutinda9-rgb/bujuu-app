@@ -54,9 +54,10 @@ jobs:
       - name: Build Web Assets
         env:
           VITE_TMDB_API_KEY: "a0f3ec7ad97db59c00931e7a88a827da"
-          VITE_SUPABASE_URL: "https://uutspemcwnizcvnmzzah.supabase.co"
-          VITE_SUPABASE_PROJECT_ID: "uutspemcwnizcvnmzzah"
-          VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_xk6aq99MweDuvwEg4zbD2A_epHChYwA"
+          VITE_SUPABASE_URL: "https://uwhawjcknqilypbgoyxo.supabase.co"
+          VITE_SUPABASE_PROJECT_ID: "uwhawjcknqilypbgoyxo"
+          VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_CXpMyEAQc2MWHs029MOn-A_DnDfF-YF"
+          VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3aGF3amNrbnFpbHlwYmdveXhvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMTU5NzQsImV4cCI6MjEwODg5MTk3NH0.ZJHgMkSjc1nIXKZir4zh-5RfZUi13rUYC0cyuVtTV8U"
           VITE_BACKEND_URL: "https://lynnn.lovable.app"
           VITE_PAYHERO_API_USERNAME: "Fwn62pjQ6lqCzqeExV9h"
           VITE_PAYHERO_API_PASSWORD: "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb"
@@ -94,14 +95,14 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "BUJUU Android App v1.9"
+          name: "BUJUU Android App v2.1"
           body: |
-            ### BUJUU Android Release v1.9 (Tap-to-Wake & TV Remote Exit Upgrade)
-            - **Brave adblock-rust Initiator Accuracy**: Evaluates network requests with real Referer/Origin context to activate domain-specific filter rules and third-party checks for streaming embeds.
-            - **Strict Top-Level Navigation Lock**: Completely prevents subframe ad scripts from hijacking the top-level player window via top.location or opening malicious external schemes (market://, intent://).
-            - **Dynamic Background Filter Updater**: Automatically checks and downloads fresh filter rules every 24 hours, safely caching and dynamically refreshing the Brave engine without app restarts.
-            - **Expanded Streaming Filter Rulebook**: Added 100+ specialized video ad network blocks, popunder suppressors, anti-adblock defusers, and cosmetic rules tailored for VidSrc, 2Embed, SuperEmbed, and StreamTape.
-            - **In-Place Update Support**: Version code 9 (versionName 1.8) with matching keystore signature for seamless in-place updates.
+            ### BUJUU Android Release v2.1 (Device Trial, Kids Mode, All-Genres & Dedicated Backend)
+            - **New Dedicated Supabase Backend**: Integrated high-speed PostgreSQL backend for 72-hour device-based trials, PayHero M-Pesa STK push payments (KSh 150 / 30 days), and cross-device subscription transfer codes.
+            - **Adult & Kids Profiles with Parental PIN**: Smooth profile switching with 4-digit numeric TV & touch keypad PIN protection to guard adult content and curate kid-friendly catalogs.
+            - **Comprehensive All-Genres Browsing**: Over 15 dynamic genre sections and high-speed hero banner carousel for effortless discovery.
+            - **Brave adblock-rust Engine**: Complete native popup blocking, redirect suppression, and video ad shielding for flawless streaming across all providers.
+            - **Seamless In-Place Android Updates**: versionCode 12 (v2.1) signed with permanent debug keystore for direct update installation without uninstalling.
           files: bujuu-app.apk
           prerelease: false
           make_latest: true
