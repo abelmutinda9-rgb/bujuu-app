@@ -343,3 +343,119 @@ $$;
 -- Grant execution permissions
 GRANT EXECUTE ON FUNCTION public.referral_available_balance(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.reserve_referral_withdrawal(uuid, text, text, integer) TO authenticated, service_role;
+
+
+-- ============================================================================
+-- 10. AUTHORITATIVE SERVER-SIDE STREAMING URL RESOLUTION (6 EMBED SERVERS)
+-- Enforces device authorization/active subscription on the backend before returning stream URLs
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.resolve_stream_source(
+  p_device_id TEXT,
+  p_tmdb_id INTEGER,
+  p_media_type TEXT,
+  p_season INTEGER DEFAULT 1,
+  p_episode INTEGER DEFAULT 1,
+  p_server_index INTEGER DEFAULT 0
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_authorized BOOLEAN := FALSE;
+  v_trial_active BOOLEAN := FALSE;
+  v_server_count CONSTANT INTEGER := 6;
+  v_idx INTEGER;
+  v_s INTEGER := COALESCE(p_season, 1);
+  v_e INTEGER := COALESCE(p_episode, 1);
+  v_url TEXT;
+  v_server_name TEXT;
+BEGIN
+  -- Verify if physical device holds an active trial
+  SELECT (expires_at > NOW()) INTO v_trial_active
+  FROM public.device_trials
+  WHERE device_id = p_device_id;
+
+  IF v_trial_active IS TRUE THEN
+    v_authorized := TRUE;
+  END IF;
+
+  -- Verify if device is bound to an active paid subscriber
+  IF v_authorized IS FALSE THEN
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.devices d
+      JOIN public.subscriptions s ON s.subscriber_id = d.subscriber_id
+      WHERE d.id = p_device_id
+        AND d.revoked_at IS NULL
+        AND s.status = 'active'
+        AND s.expires_at > NOW()
+    ) INTO v_authorized;
+  END IF;
+
+  -- Block if unauthorized
+  IF v_authorized IS NOT TRUE THEN
+    RETURN jsonb_build_object(
+      'authorized', FALSE,
+      'error', 'Subscription or active 3-day trial required to access video stream.'
+    );
+  END IF;
+
+  v_idx := ABS(COALESCE(p_server_index, 0)) % v_server_count;
+
+  IF v_idx = 0 THEN
+    v_server_name := 'Server 1';
+    IF p_media_type = 'tv' THEN
+      v_url := 'https://vidfast.pro/tv/' || p_tmdb_id || '/' || v_s || '/' || v_e;
+    ELSE
+      v_url := 'https://vidfast.pro/movie/' || p_tmdb_id;
+    END IF;
+  ELSIF v_idx = 1 THEN
+    v_server_name := 'Server 2';
+    IF p_media_type = 'tv' THEN
+      v_url := 'https://vidy.st/tv/' || p_tmdb_id || '/' || v_s || '/' || v_e;
+    ELSE
+      v_url := 'https://vidy.st/movie/' || p_tmdb_id;
+    END IF;
+  ELSIF v_idx = 2 THEN
+    v_server_name := 'Server 3';
+    IF p_media_type = 'tv' THEN
+      v_url := 'https://vidrock.net/embed/tv/' || p_tmdb_id || '/' || v_s || '/' || v_e;
+    ELSE
+      v_url := 'https://vidrock.net/embed/movie/' || p_tmdb_id;
+    END IF;
+  ELSIF v_idx = 3 THEN
+    v_server_name := 'Server 4';
+    IF p_media_type = 'tv' THEN
+      v_url := 'https://vidvault.to/tv/' || p_tmdb_id || '/' || v_s || '/' || v_e;
+    ELSE
+      v_url := 'https://vidvault.to/movie/' || p_tmdb_id;
+    END IF;
+  ELSIF v_idx = 4 THEN
+    v_server_name := 'Server 5';
+    IF p_media_type = 'tv' THEN
+      v_url := 'https://vidsrc.mov/embed/tv/' || p_tmdb_id || '/' || v_s || '/' || v_e;
+    ELSE
+      v_url := 'https://vidsrc.mov/embed/movie/' || p_tmdb_id;
+    END IF;
+  ELSE
+    v_server_name := 'Server 6';
+    IF p_media_type = 'tv' THEN
+      v_url := 'https://player.vidzee.wtf/embed/tv/' || p_tmdb_id || '/' || v_s || '/' || v_e;
+    ELSE
+      v_url := 'https://player.vidzee.wtf/embed/movie/' || p_tmdb_id;
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'authorized', TRUE,
+    'server_index', v_idx,
+    'server_name', v_server_name,
+    'stream_url', v_url
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.resolve_stream_source(TEXT, INTEGER, TEXT, INTEGER, INTEGER, INTEGER) TO anon, authenticated;
