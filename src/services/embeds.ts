@@ -1,4 +1,6 @@
 import type { MediaType } from "./tmdb";
+import { supabase } from "@/integrations/supabase/client";
+import { getNativeDeviceId } from "@/hooks/use-device-trial";
 
 export interface EmbedTarget {
   tmdbId: number;
@@ -7,70 +9,71 @@ export interface EmbedTarget {
   episode?: number;
 }
 
-export interface EmbedProvider {
-  id: string;
-  label: string;
-  build: (t: EmbedTarget) => string;
+export interface StreamResolution {
+  authorized: boolean;
+  serverIndex: number;
+  serverName: string;
+  streamUrl: string | null;
+  error?: string;
 }
 
-const s = (t: EmbedTarget) => t.season ?? 1;
-const e = (t: EmbedTarget) => t.episode ?? 1;
-const isTv = (t: EmbedTarget) => t.mediaType === "tv";
+export const SERVER_COUNT = 6;
 
-export const PROVIDERS: EmbedProvider[] = [
-  {
-    id: "vidfast",
-    label: "Server 1",
-    build: (t) =>
-      isTv(t)
-        ? `https://vidfast.pro/tv/${t.tmdbId}/${s(t)}/${e(t)}`
-        : `https://vidfast.pro/movie/${t.tmdbId}`,
-  },
-  {
-    id: "vidy",
-    label: "Server 2",
-    build: (t) =>
-      isTv(t)
-        ? `https://vidy.st/tv/${t.tmdbId}/${s(t)}/${e(t)}`
-        : `https://vidy.st/movie/${t.tmdbId}`,
-  },
-  {
-    id: "vidrock",
-    label: "Server 3",
-    build: (t) =>
-      isTv(t)
-        ? `https://vidrock.net/embed/tv/${t.tmdbId}/${s(t)}/${e(t)}`
-        : `https://vidrock.net/embed/movie/${t.tmdbId}`,
-  },
-  {
-    id: "vidvault",
-    label: "Server 4",
-    build: (t) =>
-      isTv(t)
-        ? `https://vidvault.to/tv/${t.tmdbId}/${s(t)}/${e(t)}`
-        : `https://vidvault.to/movie/${t.tmdbId}`,
-  },
-  {
-    id: "vidsrcmov",
-    label: "Server 5",
-    build: (t) =>
-      isTv(t)
-        ? `https://vidsrc.mov/embed/tv/${t.tmdbId}/${s(t)}/${e(t)}`
-        : `https://vidsrc.mov/embed/movie/${t.tmdbId}`,
-  },
-  {
-    id: "vidzee",
-    label: "Server 6",
-    build: (t) =>
-      isTv(t)
-        ? `https://player.vidzee.wtf/embed/tv/${t.tmdbId}/${s(t)}/${e(t)}`
-        : `https://player.vidzee.wtf/embed/movie/${t.tmdbId}`,
-  },
+export const SERVERS = [
+  { id: "s1", label: "Server 1" },
+  { id: "s2", label: "Server 2" },
+  { id: "s3", label: "Server 3" },
+  { id: "s4", label: "Server 4" },
+  { id: "s5", label: "Server 5" },
+  { id: "s6", label: "Server 6" },
 ];
 
-export const SERVER_COUNT = PROVIDERS.length;
+/**
+ * Resolves video stream URL strictly from backend RPC.
+ * Validates active device trial / subscription on the database before granting access.
+ */
+export async function resolveBackendStream(
+  target: EmbedTarget,
+  serverIndex = 0
+): Promise<StreamResolution> {
+  const deviceId = getNativeDeviceId();
 
-export function embedUrl(target: EmbedTarget, serverIndex = 0): string {
-  const provider = PROVIDERS[serverIndex % PROVIDERS.length] ?? PROVIDERS[0]!;
-  return provider.build(target);
+  try {
+    const { data, error } = await supabase.rpc("resolve_stream_source", {
+      p_device_id: deviceId,
+      p_tmdb_id: target.tmdbId,
+      p_media_type: target.mediaType,
+      p_season: target.season ?? 1,
+      p_episode: target.episode ?? 1,
+      p_server_index: serverIndex,
+    });
+
+    if (error) {
+      console.warn("Backend stream resolution error:", error);
+      return {
+        authorized: false,
+        serverIndex,
+        serverName: `Server ${serverIndex + 1}`,
+        streamUrl: null,
+        error: error.message,
+      };
+    }
+
+    const res = data as any;
+    return {
+      authorized: Boolean(res?.authorized),
+      serverIndex: Number(res?.server_index ?? serverIndex),
+      serverName: res?.server_name || `Server ${serverIndex + 1}`,
+      streamUrl: res?.stream_url || null,
+      error: res?.error,
+    };
+  } catch (err: any) {
+    return {
+      authorized: false,
+      serverIndex,
+      serverName: `Server ${serverIndex + 1}`,
+      streamUrl: null,
+      error: err?.message || "Stream resolution failed",
+    };
+  }
 }
