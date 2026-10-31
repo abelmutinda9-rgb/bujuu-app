@@ -7,24 +7,36 @@ import { useNavigate } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
+import { lovable } from "@/integrations/lovable";
+import { useDeviceTrial } from "@/hooks/use-device-trial";
 
 export function GoogleButton() {
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+  const trial = useDeviceTrial();
+
+  async function handlePostSignIn(userId: string) {
+    try {
+      // Sync subscription and authorize this device for the Google account
+      const res: any = await trial.transferViaGoogleAccount(userId);
+      if (res && res.success) {
+        toast.success("Subscription synced to this device!");
+      }
+    } catch (e) {
+      console.warn("Post-sign-in subscription sync notice:", e);
+    }
+  }
 
   async function handleGoogleLogin() {
     try {
       sessionStorage.setItem("bujuu.after", window.location.pathname + window.location.search);
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     setBusy(true);
 
     if (Capacitor.isNativePlatform()) {
       try {
         await GoogleAuth.initialize({
-          clientId: "857102692656-bqtjjvt1bg70snohfadspgcpdim24v82.apps.googleusercontent.com",
+          clientId: "857102692656-bqtjvt1bg70snohfadspgcpdim24v82.apps.googleusercontent.com",
           scopes: ["profile", "email"],
           grantOfflineAccess: true,
         });
@@ -47,7 +59,8 @@ export function GoogleButton() {
         }
 
         if (data.session) {
-          toast.success("Signed in successfully!");
+          toast.success("Signed in with Google!");
+          await handlePostSignIn(data.session.user.id);
           const target = sessionStorage.getItem("bujuu.after") || "/";
           void navigate({ to: target });
         }
@@ -63,8 +76,8 @@ export function GoogleButton() {
         }
 
         if (msg.includes("canceled") || msg.includes("12501")) {
-          // User canceled the sign-in prompt
-        } else if (msg.includes("10:") || msg.includes("DEVELOPER_ERROR") || msg.includes("10")) {
+          // User canceled prompt
+        } else if (msg.includes("10:") || msg.includes("DEVELOPER_ERROR")) {
           toast.error("Google Error 10: Web Client ID or SHA-1 mismatch in Google Cloud Console.", { duration: 8000 });
         } else {
           toast.error(msg);
