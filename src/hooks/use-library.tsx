@@ -26,35 +26,10 @@ export function useMyList() {
       return data ?? [];
     },
     enabled: Boolean(session && userId),
-    staleTime: 60_000,
+    staleTime: 1000 * 30,
   });
 }
 
-export function useContinueWatching() {
-  const { session } = useSession();
-  const userId = session?.user.id;
-  return useQuery({
-    queryKey: ["library", "continue", userId],
-    queryFn: async () => {
-      if (!userId) return [];
-      const { data, error } = await supabase
-        .from("playback_progress")
-        .select("tmdb_id, media_type, title, poster_path, backdrop_path, season, episode, watched_seconds, duration_seconds, updated_at")
-        .eq("user_id", userId)
-        .order("updated_at", { ascending: false })
-        .limit(20);
-      if (error) {
-        console.warn("Could not load Continue Watching:", error);
-        return [];
-      }
-      return data ?? [];
-    },
-    enabled: Boolean(session && userId),
-    staleTime: 30_000,
-  });
-}
-
-/** Toggle a title in My List; guests are sent to sign in. */
 export function useMyListToggle(item: MediaItem | undefined) {
   const { session } = useSession();
   const list = useMyList();
@@ -101,10 +76,101 @@ export function useMyListToggle(item: MediaItem | undefined) {
   const onToggle = () => {
     if (!item) return;
     if (!session) {
-      void navigate({ to: "/auth", search: { redirect: window.location.pathname } as never });
+      void navigate({ to: "/auth", search: { redirect: window.location.pathname } });
       return;
     }
     mutation.mutate();
   };
   return { inList, onToggle, pending: mutation.isPending };
+}
+
+export interface ContinueWatchingItem {
+  tmdb_id: number;
+  media_type: "movie" | "tv";
+  title: string;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  season: number;
+  episode: number;
+  watched_seconds: number;
+  duration_seconds: number | null;
+  updated_at: string;
+}
+
+export function useContinueWatching() {
+  const { session } = useSession();
+  const userId = session?.user.id;
+  return useQuery({
+    queryKey: ["library", "continue-watching", userId],
+    queryFn: async (): Promise<ContinueWatchingItem[]> => {
+      if (!userId) return [];
+      const { data, error } = await supabase
+        .from("playback_progress")
+        .select(
+          "tmdb_id, media_type, title, poster_path, backdrop_path, season, episode, watched_seconds, duration_seconds, updated_at"
+        )
+        .eq("user_id", userId)
+        .order("updated_at", { ascending: false })
+        .limit(20);
+      if (error) {
+        console.warn("Could not load Continue Watching:", error);
+        return [];
+      }
+      return (data as ContinueWatchingItem[]) ?? [];
+    },
+    enabled: Boolean(session && userId),
+    staleTime: 1000 * 30,
+  });
+}
+
+export interface WatchHistoryItem {
+  id: string;
+  tmdb_id: number;
+  media_type: "movie" | "tv";
+  title: string;
+  poster_path: string | null;
+  season: number | null;
+  episode: number | null;
+  watched_at: string;
+}
+
+export function useWatchHistory() {
+  const { session } = useSession();
+  const userId = session?.user.id;
+  const qc = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["library", "watch-history", userId],
+    queryFn: async (): Promise<WatchHistoryItem[]> => {
+      if (!userId) return [];
+      const { data, error } = await supabase
+        .from("watch_history")
+        .select("id, tmdb_id, media_type, title, poster_path, season, episode, watched_at")
+        .eq("user_id", userId)
+        .order("watched_at", { ascending: false })
+        .limit(50);
+      if (error) {
+        console.warn("Could not load watch history:", error);
+        return [];
+      }
+      return (data as WatchHistoryItem[]) ?? [];
+    },
+    enabled: Boolean(session && userId),
+    staleTime: 1000 * 30,
+  });
+
+  const clearHistory = useMutation({
+    mutationFn: async () => {
+      if (!userId) return;
+      const { error } = await supabase.from("watch_history").delete().eq("user_id", userId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Watch history cleared");
+      void qc.invalidateQueries({ queryKey: ["library", "watch-history"] });
+    },
+    onError: () => toast.error("Could not clear watch history"),
+  });
+
+  return { ...query, clearHistory };
 }
