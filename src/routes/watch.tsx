@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
 import { useAccount } from "@/hooks/use-account";
+import { useProfile } from "@/context/profile-context";
 import { useDeviceTrial } from "@/hooks/use-device-trial";
 import { embedUrl, PROVIDERS, SERVER_COUNT } from "@/services/embeds";
 import { detailsQuery, seasonQuery, stillUrl } from "@/services/tmdb";
@@ -38,6 +39,7 @@ function Watch() {
 
   const { isPremium, loading: accountLoading, signedIn, state } = useAccount();
   const trial = useDeviceTrial();
+  const { isKids } = useProfile();
 
   const [loaded, setLoaded] = useState(false);
   const [server, setServer] = useState(0);
@@ -80,8 +82,11 @@ function Watch() {
     }
   }, [showEpisodes, pingControls]);
 
-  // Strict entitlement check: only generate embed URL when actively subscribed and authorized
-  const canPlay = trial.canStream || Boolean(isPremium && state?.status === "ACTIVE");
+  const details = useQuery(detailsQuery(tmdbId, mediaType));
+  const isAdultRestricted = Boolean(isKids && details.data?.adult);
+
+  // Strict entitlement check: only generate embed URL when actively subscribed, trial active, and not age-restricted
+  const canPlay = (trial.canStream || Boolean(isPremium && state?.status === "ACTIVE")) && !isAdultRestricted;
   const src = canPlay ? embedUrl({ tmdbId, mediaType, season, episode }, server) : null;
 
   // Reset loading state and set safety reveal timeout whenever the source changes
@@ -110,7 +115,7 @@ function Watch() {
     setServer(0);
   }, [tmdbId, mediaType, season, episode]);
 
-  const details = useQuery(detailsQuery(isTv ? tmdbId : null, "tv"));
+  // details query declared above
   const seasonCount = details.data?.seasons ?? 1;
   const episodes = useQuery(seasonQuery(isTv ? tmdbId : null, season, isTv));
 
@@ -239,7 +244,32 @@ function Watch() {
     );
   }
 
-  // 2. Unauthenticated or unpaid locked state — strictly deny playback
+  // 2. Age-restricted in Kids mode
+  if (isAdultRestricted) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950 p-6 text-center">
+        <div className="max-w-md space-y-5 rounded-2xl border border-amber-800/60 bg-zinc-900/95 p-8 shadow-2xl backdrop-blur-md">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/10 text-amber-500">
+            <ShieldAlert className="h-7 w-7" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold text-white">Age-Restricted Content</h2>
+            <p className="text-sm text-zinc-400">
+              This title is restricted in Kids Mode. Switch to the Adult profile and enter your parental PIN to watch.
+            </p>
+          </div>
+          <button
+            onClick={exitToHome}
+            className="w-full rounded-xl bg-amber-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
+          >
+            Back to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Unauthenticated or unpaid locked state — strictly deny playback
   if (!canPlay) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950 p-6 text-center">

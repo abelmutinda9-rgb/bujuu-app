@@ -8,6 +8,7 @@ import { MediaCard } from "@/components/media/MediaCard";
 import { MediaDetail } from "@/components/media/MediaDetail";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { GENRES, infiniteCatalog, peopleQuery, type MediaItem } from "@/services/tmdb";
+import { useProfile } from "@/context/profile-context";
 
 export const Route = createFileRoute("/search")({
   head: () => ({
@@ -25,6 +26,7 @@ const CHIPS = ["All", "Movies", "TV Shows", "Actors", "Genres"] as const;
 type Chip = (typeof CHIPS)[number];
 
 function SearchPage() {
+  const { isKids } = useProfile();
   const [term, setTerm] = useState("");
   const [chip, setChip] = useState<Chip>("All");
   const [genre, setGenre] = useState<number | null>(null);
@@ -48,11 +50,15 @@ function SearchPage() {
   }, [chip, people.data, catalog.data]);
 
   const items = useMemo(() => {
-    if (chip === "Movies") return base.filter((i) => i.mediaType === "movie");
-    if (chip === "TV Shows") return base.filter((i) => i.mediaType === "tv");
-    if (chip === "Genres" && genre != null) return base.filter((i) => i.genreIds.includes(genre));
-    return base;
-  }, [base, chip, genre]);
+    let filtered = base;
+    if (isKids) {
+      filtered = filtered.filter((i) => !i.adult);
+    }
+    if (chip === "Movies") return filtered.filter((i) => i.mediaType === "movie");
+    if (chip === "TV Shows") return filtered.filter((i) => i.mediaType === "tv");
+    if (chip === "Genres" && genre != null) return filtered.filter((i) => i.genreIds.includes(genre));
+    return filtered;
+  }, [base, chip, genre, isKids]);
 
   const availableGenres = useMemo(() => {
     const ids = new Set<number>();

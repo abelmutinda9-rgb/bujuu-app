@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { useAccount } from "@/hooks/use-account";
+import { useDeviceTrial } from "@/hooks/use-device-trial";
+import { useProfile } from "@/context/profile-context";
 import { useMyListToggle } from "@/hooks/use-library";
 import type { MediaItem } from "@/services/tmdb";
 import { backdropUrl } from "@/services/tmdb";
@@ -33,6 +35,8 @@ export function HeroBanner({
   const currentItem = rotationItems[currentIndex] ?? item;
   const myList = useMyListToggle(currentItem);
   const { isPremium, signedIn } = useAccount();
+  const trial = useDeviceTrial();
+  const { isKids } = useProfile();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -67,9 +71,15 @@ export function HeroBanner({
   const year = currentItem.releaseDate ? new Date(currentItem.releaseDate).getFullYear() : undefined;
 
   const handlePlayClick = (e: React.MouseEvent | React.KeyboardEvent) => {
-    if (!signedIn || !isPremium) {
+    if (isKids && currentItem.adult) {
       e.preventDefault();
-      toast.error("Active subscription (KSh 150 / 30 days) required to watch movies.");
+      toast.error("This title is restricted in Kids Mode.");
+      return;
+    }
+    const canStream = trial.canStream || (signedIn && isPremium);
+    if (!canStream) {
+      e.preventDefault();
+      toast.error("Active subscription or trial required to watch movies.");
       void navigate({
         to: "/subscribe",
         search: {
@@ -82,7 +92,8 @@ export function HeroBanner({
   const handlePlayKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       handlePlayClick(e);
-      if (signedIn && isPremium) {
+      const canStream = trial.canStream || (signedIn && isPremium);
+      if (canStream && !(isKids && currentItem.adult)) {
         void navigate({
           to: "/watch",
           search: { tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 },

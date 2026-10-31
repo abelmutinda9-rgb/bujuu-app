@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
 import { useAccount } from "@/hooks/use-account";
+import { useDeviceTrial } from "@/hooks/use-device-trial";
+import { useProfile } from "@/context/profile-context";
 import { useMyListToggle } from "@/hooks/use-library";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import {
@@ -57,13 +59,21 @@ function Body({ item, onOpenChange }: { item: MediaItem; onOpenChange: (open: bo
   const { data } = useQuery(detailsQuery(item.id, item.mediaType));
   const myList = useMyListToggle(item);
   const { isPremium, signedIn } = useAccount();
+  const trial = useDeviceTrial();
+  const { isKids } = useProfile();
   const navigate = useNavigate();
 
   const handlePlayClick = (e: React.MouseEvent) => {
-    if (!signedIn || !isPremium) {
+    if (isKids && item.adult) {
+      e.preventDefault();
+      toast.error("This title is rated Adult and cannot be played in Kids Mode.");
+      return;
+    }
+    const canStream = trial.canStream || (signedIn && isPremium);
+    if (!canStream) {
       e.preventDefault();
       onOpenChange(false);
-      toast.error("Active subscription (KSh 150 / 30 days) required to watch movies.");
+      toast.error("Active subscription or trial required to watch movies.");
       void navigate({
         to: "/subscribe",
         search: {
