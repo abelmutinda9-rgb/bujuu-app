@@ -31,6 +31,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { normalizeKenyanPhone } from "@/services/payhero";
 import { buildReferralUrl } from "@/config/referral";
 import { myReferrals } from "@/lib/account.functions";
+import { useWatchHistory } from "@/hooks/use-library";
+import { History, Trash2, Film } from "lucide-react";
 import { myWithdrawals, requestReferralWithdrawal } from "@/lib/withdrawal.functions";
 
 export const Route = createFileRoute("/profile")({
@@ -203,6 +205,9 @@ function ProfilePage() {
                 Sign out
               </Button>
             </div>
+
+            {/* Watch History */}
+            <WatchHistorySection />
 
             <div className="rounded-lg border border-border p-5">
               <div className="flex items-center justify-between">
@@ -688,6 +693,72 @@ function AppUpdatesSection() {
           >
             Download & Update APK
           </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WatchHistorySection() {
+  const { data: history, isLoading, clearHistory } = useWatchHistory();
+
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-5 shadow-lg backdrop-blur-md space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <History className="h-5 w-5 text-rose-500" />
+          <h2 className="text-base font-bold text-white">Watch History</h2>
+        </div>
+        {history && history.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => clearHistory.mutate()}
+            disabled={clearHistory.isPending}
+            className="text-xs text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 h-8 gap-1.5"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Clear
+          </Button>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-12 rounded-lg bg-zinc-800/40 animate-pulse" />
+          ))}
+        </div>
+      ) : !history || history.length === 0 ? (
+        <p className="text-xs text-zinc-400">No watch history yet. Titles you stream will appear here.</p>
+      ) : (
+        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+          {history.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between rounded-lg border border-zinc-800/60 bg-zinc-950/60 p-2.5 transition-colors hover:border-zinc-700"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded bg-zinc-800 text-zinc-400">
+                  <Film className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-white">
+                    {item.title}
+                    {item.season && item.episode ? ` (S${item.season} E${item.episode})` : ""}
+                  </p>
+                  <p className="text-[10px] text-zinc-500">
+                    {new Date(item.watched_at).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
