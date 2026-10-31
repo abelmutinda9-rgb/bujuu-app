@@ -8,7 +8,7 @@ import { z } from "zod";
 import { useAccount, useSession } from "@/hooks/use-account";
 import { supabase } from "@/integrations/supabase/client";
 import { useDeviceTrial } from "@/hooks/use-device-trial";
-import { embedUrl, PROVIDERS, SERVER_COUNT } from "@/services/embeds";
+import { resolveBackendStream, SERVERS, SERVER_COUNT } from "@/services/embeds";
 import { detailsQuery, seasonQuery, stillUrl } from "@/services/tmdb";
 
 const searchSchema = z.object({
@@ -81,9 +81,24 @@ function Watch() {
     }
   }, [showEpisodes, pingControls]);
 
-  // Strict entitlement check: only generate embed URL when actively subscribed and authorized
+  // Strict entitlement check
   const canPlay = trial.canStream || Boolean(isPremium && state?.status === "ACTIVE");
-  const src = canPlay ? embedUrl({ tmdbId, mediaType, season, episode }, server) : null;
+
+  // Authoritative Backend Stream Resolution: URLs and server validation happen on the server
+  const streamQuery = useQuery({
+    queryKey: ["bujuu-backend-stream", tmdbId, mediaType, season, episode, server, trial.deviceId],
+    queryFn: async () => {
+      if (!canPlay) return null;
+      return await resolveBackendStream(
+        { tmdbId, mediaType, season, episode },
+        server
+      );
+    },
+    enabled: Boolean(canPlay && tmdbId),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const src = streamQuery.data?.streamUrl ?? null;
 
   const { session } = useSession();
   const userId = session?.user?.id;
@@ -468,7 +483,7 @@ function Watch() {
           showControls ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-4 pointer-events-none"
         }`}
       >
-        {PROVIDERS.map((p, i) => (
+        {SERVERS.map((p, i) => (
           <button
             key={p.id}
             type="button"
