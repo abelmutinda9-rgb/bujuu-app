@@ -102,7 +102,6 @@
   --sidebar-ring: oklch(0.6 0 0);
 }
 
-
 .dark {
   --background: oklch(0.129 0.042 264.695);
   --foreground: oklch(0.984 0.003 247.858);
@@ -157,8 +156,15 @@
     font-feature-settings: "ss01" on;
   }
 
-  button, a, input { -webkit-tap-highlight-color: transparent; }
-  ::selection { background: oklch(0.59 0.19 27.5 / 35%); color: white; }
+  button,
+  a,
+  input {
+    -webkit-tap-highlight-color: transparent;
+  }
+  ::selection {
+    background: oklch(0.59 0.19 27.5 / 35%);
+    color: white;
+  }
 }
 
 /* BUJUU auth + splash monochrome surfaces */
@@ -178,7 +184,6 @@
   --color-paper-muted: var(--paper-muted);
   --color-paper-field: var(--paper-field);
 }
-
 
 /* TV Remote & Spatial Focus Enhancements */
 @layer base {

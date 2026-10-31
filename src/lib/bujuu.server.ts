@@ -24,7 +24,8 @@ export function normalizePhone(input: string): string {
   if (n.startsWith("0")) n = `254${n.slice(1)}`;
   else if (n.startsWith("7") || n.startsWith("1")) n = `254${n}`;
   else if (n.startsWith("2540")) n = `254${n.slice(4)}`;
-  if (!/^254(7|1)\d{8}$/.test(n)) throw new Error("Enter a valid Safaricom number, e.g. 0712345678");
+  if (!/^254(7|1)\d{8}$/.test(n))
+    throw new Error("Enter a valid Safaricom number, e.g. 0712345678");
   return n;
 }
 
@@ -68,7 +69,8 @@ export async function rateLimit(bucket: string, key: string, limit: number, wind
     _limit: limit,
     _window_seconds: windowSeconds,
   });
-  if (error) throw new Error("Security checks are temporarily unavailable. Please try again shortly.");
+  if (error)
+    throw new Error("Security checks are temporarily unavailable. Please try again shortly.");
   if (data === false) throw new Error("Too many attempts. Please wait a moment and try again.");
 }
 
@@ -101,9 +103,9 @@ export interface AccessState {
 }
 
 /** Verifies the device credentials and returns the subscription state behind them. */
-export async function resolveAccess(creds: DeviceCreds | null): Promise<
-  AccessState & { subscriberId: string | null; deviceRow: { id: string } | null }
-> {
+export async function resolveAccess(
+  creds: DeviceCreds | null,
+): Promise<AccessState & { subscriberId: string | null; deviceRow: { id: string } | null }> {
   const none = {
     active: false,
     phone: null,
@@ -111,6 +113,7 @@ export async function resolveAccess(creds: DeviceCreds | null): Promise<
     autoRenew: false,
     subscriberId: null,
     deviceRow: null,
+    trialEndsAt: null,
   } as const;
   if (!creds?.deviceId || !creds.deviceSecret) return { ...none, reason: "no_device" };
 
@@ -127,7 +130,11 @@ export async function resolveAccess(creds: DeviceCreds | null): Promise<
 
   // The device is genuine from here on, so always report its row — callers such as
   // startPayment need it even when there is no subscription yet.
-  const known = { ...none, deviceRow: { id: device.id } as { id: string }, trialEndsAt: device.trial_ends_at };
+  const known = {
+    ...none,
+    deviceRow: { id: device.id } as { id: string },
+    trialEndsAt: device.trial_ends_at,
+  };
   if (device.revoked_at) return { ...known, reason: "device_revoked" };
   if (!device.subscriber_id) {
     const trialActive = new Date(device.trial_ends_at).getTime() > Date.now();
@@ -152,9 +159,17 @@ export async function resolveAccess(creds: DeviceCreds | null): Promise<
     phone: subscriber?.phone ?? null,
     subscriberId: device.subscriber_id,
     deviceRow: { id: device.id },
+    trialEndsAt: device.trial_ends_at,
   };
   if (!sub) {
-    return { ...base, active: false, expiresAt: null, autoRenew: false, reason: "no_subscription" };
+    const trialActive = new Date(device.trial_ends_at).getTime() > Date.now();
+    return {
+      ...base,
+      active: trialActive,
+      expiresAt: null,
+      autoRenew: false,
+      reason: trialActive ? "trial" : "no_subscription",
+    };
   }
   const expired = new Date(sub.expires_at).getTime() <= Date.now();
   return {
@@ -246,7 +261,10 @@ export async function cancelAutoRenew(subscriberId: string) {
 /** One device at a time: bind this one, revoke every other device on the account. */
 export async function bindDevice(subscriberId: string, deviceId: string) {
   const db = await admin();
-  await db.from("devices").update({ subscriber_id: subscriberId, revoked_at: null }).eq("id", deviceId);
+  await db
+    .from("devices")
+    .update({ subscriber_id: subscriberId, revoked_at: null })
+    .eq("id", deviceId);
   await db
     .from("devices")
     .update({ revoked_at: new Date().toISOString() })
@@ -276,7 +294,9 @@ export async function payheroStkPush(args: {
   const password = process.env["PAYHERO_API_PASSWORD"];
   const channelId = process.env["PAYHERO_CHANNEL_ID"];
   if (!username || !password || !channelId) {
-    throw new Error("PayHero payment credentials are not configured on the server. Please check backend environment variables.");
+    throw new Error(
+      "PayHero payment credentials are not configured on the server. Please check backend environment variables.",
+    );
   }
 
   // PayHero requires 10-digit national format (e.g. 0787677676); 254... results in HTTP 400
@@ -323,7 +343,12 @@ export function siteOrigin(): string {
   if (explicit) return explicit.replace(/\/$/, "");
   const host = getRequestHeader("x-forwarded-host") ?? getRequestHeader("host");
   const proto = getRequestHeader("x-forwarded-proto") ?? "https";
-  if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("capacitor")) {
+  if (
+    host &&
+    !host.includes("localhost") &&
+    !host.includes("127.0.0.1") &&
+    !host.includes("capacitor")
+  ) {
     return `${proto}://${host}`;
   }
   return "https://app.bujuu.tv";

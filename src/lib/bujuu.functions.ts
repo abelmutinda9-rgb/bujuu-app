@@ -24,9 +24,8 @@ export const registerDevice = createServerFn({ method: "POST" })
     z.object({ label: z.string().max(80).optional() }).parse(input ?? {}),
   )
   .handler(async ({ data }) => {
-    const { admin, randomToken, sha256, rateLimit, clientIp, audit } = await import(
-      "@/lib/bujuu.server"
-    );
+    const { admin, randomToken, sha256, rateLimit, clientIp, audit } =
+      await import("@/lib/bujuu.server");
     await rateLimit("device_register", clientIp(), 20, 3600);
 
     const secret = randomToken(32);
@@ -57,19 +56,22 @@ export const getAccess = createServerFn({ method: "POST" })
     };
   });
 
-
 /** Device-bound trial/access status, derived only from server timestamps and subscriptions. */
 export const getDeviceStatus = createServerFn({ method: "POST" })
   .validator((input: unknown) => credsSchema.parse(input))
   .handler(async ({ data }) => {
     const { admin, resolveAccess } = await import("@/lib/bujuu.server");
     const access = await resolveAccess(data);
-    if (!access.deviceRow) return { status: "blocked" as const, can_stream: false, days_remaining: 0 };
+    if (!access.deviceRow)
+      return { status: "blocked" as const, can_stream: false, days_remaining: 0 };
     if (access.active && access.expiresAt) {
       return {
         status: "active" as const,
         can_stream: true,
-        days_remaining: Math.max(0, Math.ceil((new Date(access.expiresAt).getTime() - Date.now()) / 86400000)),
+        days_remaining: Math.max(
+          0,
+          Math.ceil((new Date(access.expiresAt).getTime() - Date.now()) / 86400000),
+        ),
         subscription_expires_at: access.expiresAt,
         phone: access.phone,
       };
@@ -78,7 +80,11 @@ export const getDeviceStatus = createServerFn({ method: "POST" })
     const remainingMs = ends.getTime() - Date.now();
     const canStream = remainingMs > 0 && access.reason !== "device_revoked";
     return {
-      status: canStream ? "trial" as const : (access.reason === "device_revoked" ? "blocked" as const : "expired" as const),
+      status: canStream
+        ? ("trial" as const)
+        : access.reason === "device_revoked"
+          ? ("blocked" as const)
+          : ("expired" as const),
       can_stream: canStream,
       days_remaining: Math.max(0, Math.ceil(remainingMs / 86400000)),
       trial_ends_at: ends.toISOString(),
@@ -130,7 +136,10 @@ export const startPayment = createServerFn({ method: "POST" })
 
     if (!payheroConfigured()) throw new Error("Payments are not configured yet.");
 
-    const device = await resolveAccess({ deviceId: data.deviceId, deviceSecret: data.deviceSecret });
+    const device = await resolveAccess({
+      deviceId: data.deviceId,
+      deviceSecret: data.deviceSecret,
+    });
     const deviceId = device.deviceRow?.id ?? null;
     if (!deviceId || device.reason === "device_revoked") {
       throw new Error("This device is not recognized. Refresh BUJUU and try again.");
@@ -209,15 +218,12 @@ export const verifyAndActivatePayment = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data }) => {
-    const {
-      admin,
-      audit,
-      grantSubscription,
-      payheroTransactionStatus,
-      PLAN_AMOUNT,
-    } = await import("@/lib/bujuu.server");
+    const { admin, audit, grantSubscription, payheroTransactionStatus, PLAN_AMOUNT } =
+      await import("@/lib/bujuu.server");
 
-    const device = await (await import("@/lib/bujuu.server")).resolveAccess({
+    const device = await (
+      await import("@/lib/bujuu.server")
+    ).resolveAccess({
       deviceId: data.deviceId,
       deviceSecret: data.deviceSecret,
     });
@@ -227,7 +233,9 @@ export const verifyAndActivatePayment = createServerFn({ method: "POST" })
     const db = await admin();
     const { data: payment } = await db
       .from("payments")
-      .select("id, status, applied_at, phone, device_id, provider_reference, amount, user_id, reference")
+      .select(
+        "id, status, applied_at, phone, device_id, provider_reference, amount, user_id, reference",
+      )
       .eq("reference", data.reference)
       .eq("device_id", device.deviceRow.id)
       .maybeSingle();
@@ -399,7 +407,12 @@ export const getPlaybackSource = createServerFn({ method: "POST" })
     await rateLimit("playback", clientIp(), 240, 3600);
     const access = await resolveAccess(data);
     if (!access.active) {
-      return { allowed: false as const, reason: access.reason, src: null, serverCount: SERVER_COUNT };
+      return {
+        allowed: false as const,
+        reason: access.reason,
+        src: null,
+        serverCount: SERVER_COUNT,
+      };
     }
 
     await audit(

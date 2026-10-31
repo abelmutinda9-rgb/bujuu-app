@@ -49,7 +49,7 @@ const corsMiddleware = createMiddleware().server(async ({ next, request }) => {
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "content-type, x-tsr-serverFn, x-tss-raw, Authorization",
           "Access-Control-Max-Age": "86400",
-          "Vary": "Origin",
+          Vary: "Origin",
         },
       });
     }
@@ -92,8 +92,8 @@ const csrfMiddleware = createCsrfMiddleware({
 });
 
 export const REMOTE_BACKEND_BASE =
-  (typeof process !== "undefined" && process.env?.VITE_BACKEND_URL) ||
-  ((import.meta as any).env?.VITE_BACKEND_URL) ||
+  (typeof process !== "undefined" && process.env?.["VITE_BACKEND_URL"]) ||
+  (import.meta as any).env?.VITE_BACKEND_URL ||
   "https://app.bujuu.tv";
 
 export const startInstance = createStart(() => ({
@@ -101,7 +101,8 @@ export const startInstance = createStart(() => ({
   requestMiddleware: [corsMiddleware, errorMiddleware, csrfMiddleware],
   serverFns: {
     fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-      const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const rawUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const isNative = Capacitor.isNativePlatform();
 
       // Normalize relative paths to absolute backend URL
@@ -167,9 +168,11 @@ export const startInstance = createStart(() => ({
       // Web or fallback fetch
       const fetchTarget = isNative
         ? targetUrl
-        : isRelative && typeof window !== "undefined" && window.location.origin.includes("lovable.app")
-        ? targetUrl
-        : rawUrl;
+        : isRelative &&
+            typeof window !== "undefined" &&
+            window.location.origin.includes("lovable.app")
+          ? targetUrl
+          : rawUrl;
 
       return fetch(fetchTarget, {
         ...init,

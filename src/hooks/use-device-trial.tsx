@@ -20,7 +20,8 @@ function loadDeviceCredentials(): { deviceId: string; deviceSecret: string } | n
     const raw = localStorage.getItem("bujuu_device_credentials");
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (typeof parsed.deviceId === "string" && typeof parsed.deviceSecret === "string") return parsed;
+    if (typeof parsed.deviceId === "string" && typeof parsed.deviceSecret === "string")
+      return parsed;
   } catch {}
   return null;
 }
@@ -35,9 +36,16 @@ export function useDeviceTrial() {
     queryFn: async (): Promise<DeviceStatus> => {
       let current = typeof window !== "undefined" ? loadDeviceCredentials() : null;
       if (!current) {
-        const created = await registerDevice({ data: { label: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 80) : "BUJUU device" } });
+        const created = await registerDevice({
+          data: {
+            label:
+              typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 80) : "BUJUU device",
+          },
+        });
         current = { deviceId: created.deviceId, deviceSecret: created.deviceSecret };
-        try { localStorage.setItem("bujuu_device_credentials", JSON.stringify(current)); } catch {}
+        try {
+          localStorage.setItem("bujuu_device_credentials", JSON.stringify(current));
+        } catch {}
       }
       const res = await getDeviceStatus({ data: current });
       return {
@@ -46,9 +54,11 @@ export function useDeviceTrial() {
         status: res.status,
         canStream: Boolean(res.can_stream),
         daysRemaining: Number(res.days_remaining) || 0,
-        trialEndsAt: res.trial_ends_at,
-        subscriptionExpiresAt: res.subscription_expires_at,
-        phone: res.phone,
+        ...(res.trial_ends_at ? { trialEndsAt: res.trial_ends_at } : {}),
+        ...(res.subscription_expires_at
+          ? { subscriptionExpiresAt: res.subscription_expires_at }
+          : {}),
+        ...(res.phone ? { phone: res.phone } : {}),
       };
     },
     staleTime: 60 * 1000,
@@ -64,14 +74,14 @@ export function useDeviceTrial() {
 
   /** Transfer an existing subscription to this device using a recovery code */
   const transferSubscription = useCallback(
-    async (recoveryToken: string) => {
+    async (phone: string) => {
       const current = typeof window !== "undefined" ? loadDeviceCredentials() : null;
       if (!current) throw new Error("This device is not registered yet.");
-      const res = await claimSubscription({ data: { ...current, phone: recoveryToken } });
+      const res = await claimSubscription({ data: { ...current, phone } });
       await refresh();
       return res;
     },
-    [deviceId, refresh]
+    [refresh],
   );
 
   return {

@@ -33,7 +33,6 @@ export function backdropUrl(path: string | null, size: "w780" | "w1280" | "origi
   return path ? `${IMAGE_BASE}/${size}${path}` : null;
 }
 
-
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 
 async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
@@ -89,7 +88,8 @@ export const topTenQuery = () =>
 export const popularActionQuery = () =>
   queryOptions({
     queryKey: ["tmdb", "action"],
-    queryFn: () => list("/discover/movie", { with_genres: "28", sort_by: "popularity.desc" }, "movie"),
+    queryFn: () =>
+      list("/discover/movie", { with_genres: "28", sort_by: "popularity.desc" }, "movie"),
     staleTime: 1000 * 60 * 10,
   });
 
@@ -176,9 +176,6 @@ export function stillUrl(path: string | null) {
   return path ? `${IMAGE_BASE}/w300${path}` : null;
 }
 
-
-
-
 /* ---------- Infinite catalog / search ---------- */
 
 export interface Page {
@@ -250,7 +247,6 @@ export const GENRES: Record<number, string> = {
   10759: "Action & Adventure",
   10765: "Sci-Fi & Fantasy",
 };
-
 
 /** Daily rotating seed to prevent stale content */
 export function getDailySeed(): number {

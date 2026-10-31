@@ -1,5 +1,14 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
-import { CheckCircle2, Copy, KeyRound, Loader2, ShieldCheck, Smartphone, Sparkles, Tv } from "lucide-react";
+import {
+  CheckCircle2,
+  Copy,
+  KeyRound,
+  Loader2,
+  ShieldCheck,
+  Smartphone,
+  Sparkles,
+  Tv,
+} from "lucide-react";
 import { useState, useRef } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -18,10 +27,14 @@ export const Route = createFileRoute("/subscribe")({
       { title: "Unlock bujuu — KSh 150 for 30 days" },
       {
         name: "description",
-        content: "Pay KSh 150 with M-Pesa for 30 days of unlimited movies and shows on bujuu, on one device.",
+        content:
+          "Pay KSh 150 with M-Pesa for 30 days of unlimited movies and shows on bujuu, on one device.",
       },
       { property: "og:title", content: "Unlock bujuu — KSh 150 for 30 days" },
-      { property: "og:description", content: "Pay KSh 150 with M-Pesa for 30 days of unlimited movies and shows on bujuu." },
+      {
+        property: "og:description",
+        content: "Pay KSh 150 with M-Pesa for 30 days of unlimited movies and shows on bujuu.",
+      },
     ],
   }),
   component: SubscribePage,
@@ -35,11 +48,14 @@ function SubscribePage() {
   const [activeTab, setActiveTab] = useState<"pay" | "restore">("pay");
   const [phone, setPhone] = useState("");
   const [recoveryInput, setRecoveryInput] = useState("");
-  
+
   const [waiting, setWaiting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
-  const [successData, setSuccessData] = useState<{ recoveryToken: string; expiresAt?: string } | null>(null);
-  
+  const [successData, setSuccessData] = useState<{
+    recoveryToken: string;
+    expiresAt?: string;
+  } | null>(null);
+
   const [restoring, setRestoring] = useState(false);
   const pollTimerRef = useRef<number | null>(null);
 
@@ -67,13 +83,20 @@ function SubscribePage() {
         attempts++;
         try {
           const statusRes = await verifyAndActivatePayment({
-            data: { reference: res.reference, deviceId: trial.deviceId, deviceSecret: trial.deviceSecret },
+            data: {
+              reference: res.reference,
+              deviceId: trial.deviceId,
+              deviceSecret: trial.deviceSecret,
+            },
           });
           if (statusRes.status === "SUCCESS") {
             setStatusMessage("Payment confirmed! Activating 30-day pass…");
             await trial.refresh();
             const dbRes = statusRes;
-            const token = typeof (dbRes as any)?.recovery_token === "string" ? (dbRes as any).recovery_token : "";
+            const token =
+              typeof (dbRes as any)?.recovery_token === "string"
+                ? (dbRes as any).recovery_token
+                : "";
             setSuccessData({
               recoveryToken: token,
               expiresAt: (dbRes as any)?.subscription_expires_at,
@@ -97,7 +120,9 @@ function SubscribePage() {
         } else {
           setWaiting(false);
           setStatusMessage("");
-          toast.error("We couldn't verify payment yet. Don't retry if M-Pesa already deducted the amount; contact support.");
+          toast.error(
+            "We couldn't verify payment yet. Don't retry if M-Pesa already deducted the amount; contact support.",
+          );
         }
       };
 
@@ -109,23 +134,23 @@ function SubscribePage() {
     }
   };
 
-  // Handle Transfer / Restore via Recovery Code
+  // Transfer an active subscription to this device by phone number
   const handleRestore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!recoveryInput.trim()) {
-      toast.error("Please enter your recovery code.");
+      toast.error("Please enter the phone number used for your subscription.");
       return;
     }
     setRestoring(true);
     try {
       const res = await trial.transferSubscription(recoveryInput.trim());
-      toast.success("Subscription successfully restored to this device!");
+      toast.success("Subscription transferred to this device!");
       setSuccessData({
-        recoveryToken: res.recovery_token || recoveryInput.trim(),
-        expiresAt: res.subscription_expires_at,
+        recoveryToken: "",
+        expiresAt: res.expiresAt,
       });
     } catch (err: any) {
-      toast.error(err?.message || "Invalid or expired recovery code.");
+      toast.error(err?.message || "No active subscription was found for that number.");
     } finally {
       setRestoring(false);
     }
@@ -168,26 +193,28 @@ function SubscribePage() {
                 </p>
               </div>
 
-              {/* Recovery Code Box */}
-              <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 p-4 text-left space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-rose-400">
-                    Your Device Recovery Code
-                  </span>
-                  <button
-                    onClick={copyToken}
-                    className="flex items-center gap-1 text-xs text-zinc-300 hover:text-white"
-                  >
-                    <Copy className="h-3.5 w-3.5" /> Copy
-                  </button>
+              {successData.recoveryToken && (
+                <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 p-4 text-left space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-rose-400">
+                      Device Recovery Code
+                    </span>
+                    <button
+                      onClick={copyToken}
+                      className="flex items-center gap-1 text-xs text-zinc-300 hover:text-white"
+                    >
+                      <Copy className="h-3.5 w-3.5" /> Copy
+                    </button>
+                  </div>
+                  <div className="font-mono text-2xl font-black tracking-widest text-white">
+                    {successData.recoveryToken}
+                  </div>
+                  <p className="text-[11px] text-zinc-400">
+                    Save this code! If you reinstall the app or switch to another TV or phone, you
+                    can enter this code to transfer your subscription.
+                  </p>
                 </div>
-                <div className="font-mono text-2xl font-black tracking-widest text-white">
-                  {successData.recoveryToken}
-                </div>
-                <p className="text-[11px] text-zinc-400">
-                  Save this code! If you reinstall the app or switch to another TV or phone, you can enter this code to transfer your subscription.
-                </p>
-              </div>
+              )}
 
               <Button
                 onClick={() => void navigate({ to: target as any })}
@@ -242,7 +269,8 @@ function SubscribePage() {
 
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-                      <Smartphone className="h-4 w-4 text-rose-500" /> Safaricom / Airtel Phone Number
+                      <Smartphone className="h-4 w-4 text-rose-500" /> Safaricom / Airtel Phone
+                      Number
                     </label>
                     <Input
                       type="tel"
@@ -260,7 +288,9 @@ function SubscribePage() {
                       <Loader2 className="h-5 w-5 animate-spin shrink-0" />
                       <div className="space-y-0.5">
                         <p className="font-semibold">{statusMessage}</p>
-                        <p className="text-[11px] text-zinc-400">Do not close this screen until PIN is entered.</p>
+                        <p className="text-[11px] text-zinc-400">
+                          Do not close this screen until PIN is entered.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -275,7 +305,7 @@ function SubscribePage() {
                 </form>
               )}
 
-              {/* Tab 2: Restore via Recovery Code */}
+              {/* Tab 2: Transfer by subscription phone */}
               {activeTab === "restore" && (
                 <form onSubmit={handleRestore} className="space-y-5">
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-2 text-xs text-zinc-400">
@@ -283,21 +313,22 @@ function SubscribePage() {
                       <Tv className="h-4 w-4 text-rose-500" /> Transfer to TV or New Phone
                     </div>
                     <p>
-                      Enter the 8-character recovery code issued when you paid. This transfers your remaining 30-day access to this device and disconnects the previous device.
+                      Enter the phone number used for your subscription. Active access transfers to
+                      this device and disconnects the previous device.
                     </p>
                   </div>
 
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-                      <KeyRound className="h-4 w-4 text-rose-500" /> Recovery Code (e.g. BUJ-7F12B8)
+                      <KeyRound className="h-4 w-4 text-rose-500" /> Subscription phone number
                     </label>
                     <Input
-                      type="text"
-                      placeholder="BUJ-XXXXXX"
+                      type="tel"
+                      placeholder="e.g. 0712345678"
                       value={recoveryInput}
-                      onChange={(e) => setRecoveryInput(e.target.value.toUpperCase())}
+                      onChange={(e) => setRecoveryInput(e.target.value)}
                       disabled={restoring}
-                      className="h-12 bg-zinc-950 border-zinc-800 text-white placeholder:text-zinc-600 rounded-xl text-base font-mono uppercase tracking-wider"
+                      className="h-12 bg-zinc-950 border-zinc-800 text-white placeholder:text-zinc-600 rounded-xl text-base"
                       required
                     />
                   </div>
