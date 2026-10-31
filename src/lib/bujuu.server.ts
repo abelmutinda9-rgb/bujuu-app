@@ -68,7 +68,7 @@ export async function rateLimit(bucket: string, key: string, limit: number, wind
     _limit: limit,
     _window_seconds: windowSeconds,
   });
-  if (error) return; // never block on limiter failure
+  if (error) throw new Error("Security checks are temporarily unavailable. Please try again shortly.");
   if (data === false) throw new Error("Too many attempts. Please wait a moment and try again.");
 }
 
@@ -96,7 +96,8 @@ export interface AccessState {
   phone: string | null;
   expiresAt: string | null;
   autoRenew: boolean;
-  reason: "ok" | "no_device" | "no_subscription" | "expired" | "device_revoked";
+  reason: "ok" | "trial" | "no_device" | "no_subscription" | "expired" | "device_revoked";
+  trialEndsAt: string | null;
 }
 
 /** Verifies the device credentials and returns the subscription state behind them. */
@@ -116,7 +117,7 @@ export async function resolveAccess(creds: DeviceCreds | null): Promise<
   const db = await admin();
   const { data: device } = await db
     .from("devices")
-    .select("id, subscriber_id, secret_hash, revoked_at")
+    .select("id, subscriber_id, secret_hash, revoked_at, trial_ends_at")
     .eq("id", creds.deviceId)
     .maybeSingle();
   if (!device) return { ...none, reason: "no_device" };
@@ -126,9 +127,12 @@ export async function resolveAccess(creds: DeviceCreds | null): Promise<
 
   // The device is genuine from here on, so always report its row — callers such as
   // startPayment need it even when there is no subscription yet.
-  const known = { ...none, deviceRow: { id: device.id } as { id: string } };
+  const known = { ...none, deviceRow: { id: device.id } as { id: string }, trialEndsAt: device.trial_ends_at };
   if (device.revoked_at) return { ...known, reason: "device_revoked" };
-  if (!device.subscriber_id) return { ...known, reason: "no_subscription" };
+  if (!device.subscriber_id) {
+    const trialActive = new Date(device.trial_ends_at).getTime() > Date.now();
+    return { ...known, active: trialActive, reason: trialActive ? "trial" : "no_subscription" };
+  }
 
   const [{ data: subscriber }, { data: sub }] = await Promise.all([
     db.from("subscribers").select("phone").eq("id", device.subscriber_id).maybeSingle(),
@@ -159,6 +163,7 @@ export async function resolveAccess(creds: DeviceCreds | null): Promise<
     expiresAt: sub.expires_at,
     autoRenew: sub.auto_renew === true,
     reason: expired ? "expired" : "ok",
+    trialEndsAt: device.trial_ends_at,
   };
 }
 
@@ -313,14 +318,15 @@ export function siteOrigin(): string {
   const explicit =
     process.env["PUBLIC_SITE_URL"] ||
     process.env["VITE_PUBLIC_SITE_URL"] ||
-    process.env["VITE_BACKEND_URL"];
+    process.env["VITE_BACKEND_URL"] ||
+    "https://app.bujuu.tv";
   if (explicit) return explicit.replace(/\/$/, "");
   const host = getRequestHeader("x-forwarded-host") ?? getRequestHeader("host");
   const proto = getRequestHeader("x-forwarded-proto") ?? "https";
   if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("capacitor")) {
     return `${proto}://${host}`;
   }
-  return "https://lynnn.lovable.app";
+  return "https://app.bujuu.tv";
 }
 
 /** Independently confirms a payment with PayHero (never trust the callback body alone). */

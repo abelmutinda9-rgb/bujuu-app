@@ -14,7 +14,7 @@ export function useAccess() {
     recoveryToken: trial.recoveryToken,
     phone: trial.phone,
     lockedOut: trial.status === "blocked",
-    creds: { deviceId: trial.deviceId, deviceSecret: "bujuu_device" },
+    creds: { deviceId: trial.deviceId, deviceSecret: trial.deviceSecret },
     invalidate: trial.refresh,
   };
 }
@@ -22,7 +22,7 @@ export function useAccess() {
 export function useDevice() {
   const trial = useDeviceTrial();
   return {
-    creds: { deviceId: trial.deviceId, deviceSecret: "bujuu_device" },
+    creds: { deviceId: trial.deviceId, deviceSecret: trial.deviceSecret },
     ready: !trial.isLoading,
   };
 }

@@ -66,11 +66,11 @@
 
 :root {
   --radius: 0.5rem;
-  --background: oklch(0 0 0);
+  --background: oklch(0.105 0.008 20);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.16 0 0);
+  --card: oklch(0.155 0.008 20);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.13 0 0);
+  --popover: oklch(0.14 0.008 20);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.985 0 0);
   --primary-foreground: oklch(0 0 0);
@@ -85,9 +85,9 @@
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 16%);
   --ring: oklch(0.6 0 0);
-  --brand: oklch(0.55 0.22 27.5);
+  --brand: oklch(0.59 0.19 27.5);
   --brand-foreground: oklch(0.985 0 0);
-  --chart-1: oklch(0.55 0.22 27.5);
+  --chart-1: oklch(0.59 0.19 27.5);
   --chart-2: oklch(0.75 0 0);
   --chart-3: oklch(0.6 0 0);
   --chart-4: oklch(0.45 0 0);
@@ -143,10 +143,22 @@
     border-color: var(--color-border);
   }
 
+  html {
+    color-scheme: dark;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   body {
+    min-height: 100vh;
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-feature-settings: "ss01" on;
   }
+
+  button, a, input { -webkit-tap-highlight-color: transparent; }
+  ::selection { background: oklch(0.59 0.19 27.5 / 35%); color: white; }
 }
 
 /* BUJUU auth + splash monochrome surfaces */

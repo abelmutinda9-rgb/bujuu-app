@@ -57,6 +57,34 @@ export const getAccess = createServerFn({ method: "POST" })
     };
   });
 
+
+/** Device-bound trial/access status, derived only from server timestamps and subscriptions. */
+export const getDeviceStatus = createServerFn({ method: "POST" })
+  .validator((input: unknown) => credsSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { admin, resolveAccess } = await import("@/lib/bujuu.server");
+    const access = await resolveAccess(data);
+    if (!access.deviceRow) return { status: "blocked" as const, can_stream: false, days_remaining: 0 };
+    if (access.active && access.expiresAt) {
+      return {
+        status: "active" as const,
+        can_stream: true,
+        days_remaining: Math.max(0, Math.ceil((new Date(access.expiresAt).getTime() - Date.now()) / 86400000)),
+        subscription_expires_at: access.expiresAt,
+        phone: access.phone,
+      };
+    }
+    const ends = access.trialEndsAt ? new Date(access.trialEndsAt) : new Date(0);
+    const remainingMs = ends.getTime() - Date.now();
+    const canStream = remainingMs > 0 && access.reason !== "device_revoked";
+    return {
+      status: canStream ? "trial" as const : (access.reason === "device_revoked" ? "blocked" as const : "expired" as const),
+      can_stream: canStream,
+      days_remaining: Math.max(0, Math.ceil(remainingMs / 86400000)),
+      trial_ends_at: ends.toISOString(),
+    };
+  });
+
 /** Stops automatic monthly charges. The paid month keeps running. */
 export const cancelRenewal = createServerFn({ method: "POST" })
   .validator((input: unknown) => credsSchema.parse(input))
@@ -75,8 +103,8 @@ export const startPayment = createServerFn({ method: "POST" })
     z
       .object({
         phone: z.string().min(9).max(20),
-        deviceId: z.string().uuid().optional().nullable(),
-        deviceSecret: z.string().min(16).optional().nullable(),
+        deviceId: z.string().uuid(),
+        deviceSecret: z.string().min(32),
         userId: z.string().uuid().optional().nullable(),
       })
       .parse(input),
@@ -102,12 +130,10 @@ export const startPayment = createServerFn({ method: "POST" })
 
     if (!payheroConfigured()) throw new Error("Payments are not configured yet.");
 
-    let deviceId: string | null = null;
-    if (data.deviceId && data.deviceSecret) {
-      try {
-        const device = await resolveAccess({ deviceId: data.deviceId, deviceSecret: data.deviceSecret });
-        deviceId = device.deviceRow?.id ?? null;
-      } catch {}
+    const device = await resolveAccess({ deviceId: data.deviceId, deviceSecret: data.deviceSecret });
+    const deviceId = device.deviceRow?.id ?? null;
+    if (!deviceId || device.reason === "device_revoked") {
+      throw new Error("This device is not recognized. Refresh BUJUU and try again.");
     }
 
     const reference = `bujuu-${randomToken(8)}`;
@@ -176,9 +202,9 @@ export const verifyAndActivatePayment = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z
       .object({
-        reference: z.string().min(4),
-        userId: z.string().uuid().optional().nullable(),
-        deviceId: z.string().optional().nullable(),
+        reference: z.string().min(4).max(64),
+        deviceId: z.string().uuid(),
+        deviceSecret: z.string().min(32),
       })
       .parse(input),
   )
@@ -191,11 +217,19 @@ export const verifyAndActivatePayment = createServerFn({ method: "POST" })
       PLAN_AMOUNT,
     } = await import("@/lib/bujuu.server");
 
+    const device = await (await import("@/lib/bujuu.server")).resolveAccess({
+      deviceId: data.deviceId,
+      deviceSecret: data.deviceSecret,
+    });
+    if (!device.deviceRow || device.reason === "device_revoked") {
+      throw new Error("This device is not authorized to verify this payment.");
+    }
     const db = await admin();
     const { data: payment } = await db
       .from("payments")
       .select("id, status, applied_at, phone, device_id, provider_reference, amount, user_id, reference")
       .eq("reference", data.reference)
+      .eq("device_id", device.deviceRow.id)
       .maybeSingle();
 
     if (!payment) {
@@ -233,8 +267,8 @@ export const verifyAndActivatePayment = createServerFn({ method: "POST" })
           .select("id");
 
         if (claimed && claimed.length > 0) {
-          const effectiveUserId = payment.user_id || data.userId || null;
-          const effectiveDeviceId = payment.device_id || data.deviceId || null;
+          const effectiveUserId = payment.user_id || null;
+          const effectiveDeviceId = payment.device_id || device.deviceRow.id;
 
           const { subscriberId, expiresAt } = await grantSubscription(
             payment.phone,

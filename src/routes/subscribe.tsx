@@ -8,7 +8,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDeviceTrial } from "@/hooks/use-device-trial";
-import { checkPaymentStatus, normalizeKenyanPhone, requestStkPush } from "@/services/payhero";
+import { startPayment, verifyAndActivatePayment } from "@/lib/bujuu.functions";
+import { normalizeKenyanPhone } from "@/services/payhero";
 
 export const Route = createFileRoute("/subscribe")({
   validateSearch: z.object({ redirect: z.string().optional() }),
@@ -52,13 +53,12 @@ function SubscribePage() {
       setWaiting(true);
       setStatusMessage("Sending M-Pesa prompt to your phone…");
 
-      const res = await requestStkPush({
-        phone: cleanPhone,
-        deviceId: trial.deviceId,
+      const res = await startPayment({
+        data: { phone: cleanPhone, deviceId: trial.deviceId, deviceSecret: trial.deviceSecret },
       });
 
       setStatusMessage("Enter your M-Pesa PIN on your phone…");
-      toast.success("M-Pesa STK prompt sent to " + cleanPhone);
+      toast.success("Secure payment request created for " + cleanPhone);
 
       // Start authoritative polling
       let attempts = 0;
@@ -66,11 +66,14 @@ function SubscribePage() {
       const poll = async () => {
         attempts++;
         try {
-          const statusRes = await checkPaymentStatus(res.reference);
+          const statusRes = await verifyAndActivatePayment({
+            data: { reference: res.reference, deviceId: trial.deviceId, deviceSecret: trial.deviceSecret },
+          });
           if (statusRes.status === "SUCCESS") {
             setStatusMessage("Payment confirmed! Activating 30-day pass…");
-            const dbRes = await trial.confirmPayment(res.reference, cleanPhone, statusRes.raw);
-            const token = (dbRes as any)?.recovery_token || "BUJ-" + trial.deviceId.slice(0, 6).toUpperCase();
+            await trial.refresh();
+            const dbRes = statusRes;
+            const token = typeof (dbRes as any)?.recovery_token === "string" ? (dbRes as any).recovery_token : "";
             setSuccessData({
               recoveryToken: token,
               expiresAt: (dbRes as any)?.subscription_expires_at,
@@ -94,7 +97,7 @@ function SubscribePage() {
         } else {
           setWaiting(false);
           setStatusMessage("");
-          toast.error("Payment confirmation timed out. If M-Pesa deducted your money, please use the restore tab.");
+          toast.error("We couldn't verify payment yet. Don't retry if M-Pesa already deducted the amount; contact support.");
         }
       };
 
@@ -138,17 +141,17 @@ function SubscribePage() {
   return (
     <AppShell>
       <div className="min-h-[85vh] flex items-center justify-center p-4 sm:p-6 lg:p-8">
-        <div className="w-full max-w-lg rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
+        <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-white/[0.09] bg-[linear-gradient(155deg,rgba(34,28,27,0.98),rgba(16,16,17,0.98)_44%)] p-6 shadow-[0_32px_90px_-42px_rgba(0,0,0,0.9)] sm:p-8">
           {/* Header */}
           <div className="text-center space-y-2 mb-6">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-500">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/15 bg-rose-300/[0.07] px-3 py-1 text-[11px] font-semibold tracking-wide text-rose-200">
               <Sparkles className="h-3.5 w-3.5" /> 30 Days Unlimited Access
             </span>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
               Unlock BUJUU
             </h1>
             <p className="text-sm text-zinc-400">
-              Zero ads, 4K streaming, multi-server playback on Android phones and Smart TVs.
+              One simple pass for your phone or TV. Pay securely with M-Pesa.
             </p>
           </div>
 
@@ -188,7 +191,7 @@ function SubscribePage() {
 
               <Button
                 onClick={() => void navigate({ to: target as any })}
-                className="w-full h-12 text-base font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl shadow-lg shadow-rose-600/30"
+                className="h-12 w-full rounded-xl bg-rose-600 text-base font-semibold text-white shadow-none transition-colors hover:bg-rose-500"
               >
                 Start Watching Now
               </Button>
@@ -265,7 +268,7 @@ function SubscribePage() {
                   <Button
                     type="submit"
                     disabled={waiting}
-                    className="w-full h-12 text-base font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl shadow-lg shadow-rose-600/30"
+                    className="h-12 w-full rounded-xl bg-rose-600 text-base font-semibold text-white shadow-none transition-colors hover:bg-rose-500"
                   >
                     {waiting ? "Waiting for M-Pesa PIN…" : "Pay KSh 150 with M-Pesa"}
                   </Button>
@@ -302,7 +305,7 @@ function SubscribePage() {
                   <Button
                     type="submit"
                     disabled={restoring}
-                    className="w-full h-12 text-base font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl shadow-lg shadow-rose-600/30"
+                    className="h-12 w-full rounded-xl bg-rose-600 text-base font-semibold text-white shadow-none transition-colors hover:bg-rose-500"
                   >
                     {restoring ? "Transferring…" : "Transfer to This Device"}
                   </Button>

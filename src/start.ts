@@ -8,7 +8,6 @@ const ALLOWED_ORIGINS = new Set([
   "capacitor://localhost",
   "http://localhost",
   "https://localhost",
-  "https://lynnn.lovable.app",
   "https://app.bujuu.tv",
 ]);
 
@@ -95,7 +94,7 @@ const csrfMiddleware = createCsrfMiddleware({
 export const REMOTE_BACKEND_BASE =
   (typeof process !== "undefined" && process.env?.VITE_BACKEND_URL) ||
   ((import.meta as any).env?.VITE_BACKEND_URL) ||
-  "https://lynnn.lovable.app";
+  "https://app.bujuu.tv";
 
 export const startInstance = createStart(() => ({
   functionMiddleware: [attachSupabaseAuth],

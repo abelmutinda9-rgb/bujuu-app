@@ -80,6 +80,8 @@ export type Database = {
           platform: string | null
           revoked_at: string | null
           secret_hash: string
+          trial_started_at: string
+          trial_ends_at: string
           subscriber_id: string | null
           user_id: string | null
         }
@@ -91,6 +93,8 @@ export type Database = {
           platform?: string | null
           revoked_at?: string | null
           secret_hash: string
+          trial_started_at?: string
+          trial_ends_at?: string
           subscriber_id?: string | null
           user_id?: string | null
         }
@@ -102,6 +106,8 @@ export type Database = {
           platform?: string | null
           revoked_at?: string | null
           secret_hash?: string
+          trial_started_at?: string
+          trial_ends_at?: string
           subscriber_id?: string | null
           user_id?: string | null
         }
