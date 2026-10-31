@@ -9,6 +9,8 @@ import { MediaDetail } from "@/components/media/MediaDetail";
 import { MediaRow } from "@/components/media/MediaRow";
 import { Top10Row } from "@/components/media/Top10Row";
 import { useProfile } from "@/context/profile-context";
+import { useContinueWatching } from "@/hooks/use-library";
+import { useMemo } from "react";
 import {
   dynamicGenreQuery,
   nowPlayingQuery,
@@ -62,6 +64,21 @@ function GenreRowSection({
 function Index() {
   const [selected, setSelected] = useState<MediaItem | null>(null);
   const { isKids } = useProfile();
+  const continueWatching = useContinueWatching();
+
+  const continueItems: MediaItem[] = useMemo(() => {
+    return (continueWatching.data ?? []).map((row) => ({
+      id: row.tmdb_id,
+      mediaType: row.media_type,
+      title: row.media_type === "tv" ? `${row.title} (S${row.season} E${row.episode})` : row.title,
+      overview: "",
+      posterPath: row.poster_path,
+      backdropPath: row.backdrop_path,
+      releaseDate: null,
+      voteAverage: 0,
+      genreIds: [],
+    }));
+  }, [continueWatching.data]);
 
   const trending = useQuery(trendingQuery());
   const topTen = useQuery(topTenQuery());
@@ -78,6 +95,15 @@ function Index() {
       />
 
       <div className="-mt-10 relative z-10 space-y-4 pb-16">
+        {/* Continue Watching Row */}
+        {continueItems.length > 0 && (
+          <MediaRow
+            title="▶️ Continue Watching"
+            items={continueItems}
+            isLoading={continueWatching.isLoading}
+            onSelect={setSelected}
+          />
+        )}
         {/* Real-time Trending Row */}
         <MediaRow
           title={isKids ? "🌟 Kids Favorites" : "🔥 Trending Today"}
