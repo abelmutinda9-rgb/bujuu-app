@@ -5,7 +5,8 @@ import { ArrowLeft, ListVideo, Loader2, Lock, ShieldAlert, SkipForward, X } from
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
-import { useAccount } from "@/hooks/use-account";
+import { useAccount, useSession } from "@/hooks/use-account";
+import { supabase } from "@/integrations/supabase/client";
 import { useDeviceTrial } from "@/hooks/use-device-trial";
 import { embedUrl, PROVIDERS, SERVER_COUNT } from "@/services/embeds";
 import { detailsQuery, seasonQuery, stillUrl } from "@/services/tmdb";
@@ -84,6 +85,79 @@ function Watch() {
   const canPlay = trial.canStream || Boolean(isPremium && state?.status === "ACTIVE");
   const src = canPlay ? embedUrl({ tmdbId, mediaType, season, episode }, server) : null;
 
+  const { session } = useSession();
+  const userId = session?.user?.id;
+  const watchedSecondsRef = useRef(0);
+  const historyLoggedRef = useRef(false);
+
+  // Periodically record playback progress to Supabase
+  const saveProgress = useCallback(async () => {
+    if (!userId || !details.data || !canPlay) return;
+    const title = details.data.title || "Untitled";
+    const posterPath = details.data.posterPath || null;
+    const backdropPath = details.data.backdropPath || null;
+    const durationSeconds = details.data.runtimeMinutes ? details.data.runtimeMinutes * 60 : 7200;
+    const watched = watchedSecondsRef.current;
+    if (watched < 5) return;
+
+    try {
+      await supabase.from("playback_progress").upsert(
+        {
+          user_id: userId,
+          tmdb_id: tmdbId,
+          media_type: mediaType,
+          title,
+          poster_path: posterPath,
+          backdrop_path: backdropPath,
+          season: isTv ? season : 1,
+          episode: isTv ? episode : 1,
+          watched_seconds: watched,
+          duration_seconds: durationSeconds,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,tmdb_id,media_type" },
+      );
+    } catch (err) {
+      console.warn("[Progress] Failed to save playback progress", err);
+    }
+  }, [userId, details.data, canPlay, tmdbId, mediaType, isTv, season, episode]);
+
+  // Log watch history entry once per session
+  useEffect(() => {
+    if (!canPlay || !userId || !details.data || historyLoggedRef.current) return;
+    historyLoggedRef.current = true;
+    void supabase
+      .from("watch_history")
+      .insert({
+        user_id: userId,
+        tmdb_id: tmdbId,
+        media_type: mediaType,
+        title: details.data.title || "Untitled",
+        poster_path: details.data.posterPath || null,
+        season: isTv ? season : null,
+        episode: isTv ? episode : null,
+        watched_at: new Date().toISOString(),
+      })
+      .then(({ error }) => {
+        if (error) console.warn("[History] Failed to log watch history", error);
+      });
+  }, [canPlay, userId, details.data, tmdbId, mediaType, isTv, season, episode]);
+
+  // Timer: increment progress every 15 seconds and save on exit
+  useEffect(() => {
+    if (!canPlay || !userId) return;
+    const interval = window.setInterval(() => {
+      watchedSecondsRef.current += 15;
+      void saveProgress();
+    }, 15000);
+
+    return () => {
+      window.clearInterval(interval);
+      void saveProgress();
+    };
+  }, [canPlay, userId, saveProgress]);
+
+
   // Reset loading state and set safety reveal timeout whenever the source changes
   useEffect(() => {
     setLoaded(false);
@@ -110,7 +184,7 @@ function Watch() {
     setServer(0);
   }, [tmdbId, mediaType, season, episode]);
 
-  const details = useQuery(detailsQuery(isTv ? tmdbId : null, "tv"));
+  const details = useQuery(detailsQuery(tmdbId, mediaType));
   const seasonCount = details.data?.seasons ?? 1;
   const episodes = useQuery(seasonQuery(isTv ? tmdbId : null, season, isTv));
 
