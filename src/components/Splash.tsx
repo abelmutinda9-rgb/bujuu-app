@@ -2,16 +2,11 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { supabase } from "@/integrations/supabase/client";
-
 const KEY = "bujuu.splashed";
-const OPEN_PATHS = ["/auth", "/reset-password", "/r/"];
 
-/** Shown once per app launch: obsidian background + animated BUJUU branding + tagline while session is checked. */
+/** Shown once per app launch: obsidian background + animated BUJUU branding + tagline. */
 export function Splash() {
   const [phase, setPhase] = useState<"hidden" | "show" | "leaving">("hidden");
-  const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
     let launched = false;
@@ -25,22 +20,15 @@ export function Splash() {
     setPhase("show");
     const started = Date.now();
 
-    // Check session on startup: if not logged in, route to the existing Signup screen inside the app
-    void supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (!data?.session && !OPEN_PATHS.some((p) => location.pathname.startsWith(p))) {
-          void navigate({ to: "/auth", search: { mode: "signup" } });
-        }
-      })
-      .finally(() => {
-        const wait = Math.max(0, 1100 - (Date.now() - started));
-        setTimeout(() => {
-          setPhase("leaving");
-          setTimeout(() => setPhase("hidden"), 350);
-        }, wait);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Guests can freely browse all catalog rows, search, and title details.
+    // Sign-in is only required when triggering playback or saving to My List.
+    const wait = Math.max(0, 1100 - (Date.now() - started));
+    const timer = setTimeout(() => {
+      setPhase("leaving");
+      setTimeout(() => setPhase("hidden"), 350);
+    }, wait);
+
+    return () => clearTimeout(timer);
   }, []);
 
   if (phase === "hidden") return null;
