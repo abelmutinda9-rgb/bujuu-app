@@ -320,7 +320,7 @@ export function siteOrigin(): string {
   if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("capacitor")) {
     return `${proto}://${host}`;
   }
-  return "https://lynnn.lovable.app";
+  return "https://app.bujuu.tv";
 }
 
 /** Independently confirms a payment with PayHero (never trust the callback body alone). */
