@@ -1,158 +1,69 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDeviceTrial } from "@/hooks/use-device-trial";
+import { getDeviceProfile, setDeviceProfile, setDevicePin, verifyDevicePin } from "@/lib/device-controls.functions";
 
 export type ProfileType = "adult" | "kids";
-
 interface ProfileContextType {
   profile: ProfileType;
   isKids: boolean;
-  switchProfile: (target: ProfileType) => void;
+  switchProfile: (target: ProfileType) => Promise<void>;
   hasPin: boolean;
-  setParentPin: (pin: string) => Promise<void>;
+  pin: boolean;
+  setParentPin: (pin: string, currentPin?: string) => Promise<void>;
   isPinModalOpen: boolean;
   closePinModal: () => void;
   verifyPinAndSwitch: (inputPin: string) => Promise<boolean>;
 }
-
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
 
-const PIN_SALT = "bujuu_salt_parental_v2_";
-
-async function sha256Hex(text: string): Promise<string> {
-  if (typeof window === "undefined" || !window.crypto?.subtle) {
-    // Basic fallback hash for non-standard environments
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      hash = ((hash << 5) - hash) + text.charCodeAt(i);
-      hash |= 0;
-    }
-    return Math.abs(hash).toString(16);
-  }
-  const encoder = new TextEncoder();
-  const data = encoder.encode(PIN_SALT + text);
-  const hashBuffer = await window.crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
-  const [profile, setProfileState] = useState<ProfileType>(() => {
-    try {
-      const saved = localStorage.getItem("bujuu_active_profile");
-      return saved === "kids" ? "kids" : "adult";
-    } catch {
-      return "adult";
-    }
-  });
-
-  const [pinHash, setPinHash] = useState<string | null>(() => {
-    try {
-      // Migrate old plaintext pin if found
-      const oldPlain = localStorage.getItem("bujuu_parent_pin");
-      if (oldPlain && oldPlain.length === 4) {
-        localStorage.removeItem("bujuu_parent_pin");
-        // We will hash it shortly
-      }
-      return localStorage.getItem("bujuu_parent_pin_hash") || null;
-    } catch {
-      return null;
-    }
-  });
-
+  const trial = useDeviceTrial();
+  const queryClient = useQueryClient();
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const key = ["device-profile", trial.deviceId];
+  const query = useQuery({
+    queryKey: key,
+    enabled: Boolean(trial.deviceId && trial.deviceSecret),
+    queryFn: () => getDeviceProfile({ data: { deviceId: trial.deviceId, deviceSecret: trial.deviceSecret } }),
+    retry: false,
+    staleTime: 30_000,
+  });
+  const profile: ProfileType = query.data?.profile ?? "kids"; // fail closed while server state is unavailable
+  const hasPin = Boolean(query.data?.hasPin);
 
-  useEffect(() => {
-    // If an old plaintext PIN is in storage, convert to hash immediately
-    try {
-      const oldPlain = localStorage.getItem("bujuu_parent_pin");
-      if (oldPlain && /^[0-9]{4}$/.test(oldPlain)) {
-        localStorage.removeItem("bujuu_parent_pin");
-        sha256Hex(oldPlain).then((hashed) => {
-          localStorage.setItem("bujuu_parent_pin_hash", hashed);
-          setPinHash(hashed);
-        });
-      }
-    } catch {}
-  }, []);
-
-  const switchProfile = useCallback((target: ProfileType) => {
-    if (target === "adult" && profile === "kids" && pinHash) {
-      // Require PIN to switch from Kids back to Adult
+  const switchProfile = useCallback(async (target: ProfileType) => {
+    if (target === "adult" && profile === "kids" && hasPin) {
       setIsPinModalOpen(true);
       return;
     }
+    if (!trial.deviceId || !trial.deviceSecret) throw new Error("This device is not registered yet.");
+    await setDeviceProfile({ data: { deviceId: trial.deviceId, deviceSecret: trial.deviceSecret, profile: target } });
+    await queryClient.invalidateQueries({ queryKey: key });
+  }, [profile, hasPin, trial.deviceId, trial.deviceSecret, queryClient]);
 
-    setProfileState(target);
-    try {
-      localStorage.setItem("bujuu_active_profile", target);
-    } catch {}
-  }, [profile, pinHash]);
-
-  const verifyPinAndSwitch = useCallback(async (inputPin: string): Promise<boolean> => {
-    if (!pinHash) {
-      setProfileState("adult");
-      try {
-        localStorage.setItem("bujuu_active_profile", "adult");
-      } catch {}
+  const verifyPinAndSwitch = useCallback(async (inputPin: string) => {
+    if (!trial.deviceId || !trial.deviceSecret) return false;
+    const result = await verifyDevicePin({ data: { deviceId: trial.deviceId, deviceSecret: trial.deviceSecret, pin: inputPin } });
+    if (result.verified) {
       setIsPinModalOpen(false);
-      return true;
-    }
-
-    const hashedInput = await sha256Hex(inputPin);
-    if (hashedInput === pinHash) {
-      setProfileState("adult");
-      try {
-        localStorage.setItem("bujuu_active_profile", "adult");
-      } catch {}
-      setIsPinModalOpen(false);
+      await queryClient.invalidateQueries({ queryKey: key });
       return true;
     }
     return false;
-  }, [pinHash]);
+  }, [trial.deviceId, trial.deviceSecret, queryClient]);
 
-  const setParentPin = useCallback(async (newPin: string) => {
-    if (!newPin || newPin.trim() === "") {
-      setPinHash(null);
-      try {
-        localStorage.removeItem("bujuu_parent_pin_hash");
-        localStorage.removeItem("bujuu_parent_pin");
-      } catch {}
-      return;
-    }
+  const setParentPin = useCallback(async (value: string, currentPin?: string) => {
+    if (!trial.deviceId || !trial.deviceSecret) throw new Error("This device is not registered yet.");
+    await setDevicePin({ data: { deviceId: trial.deviceId, deviceSecret: trial.deviceSecret, pin: value ? value : null, ...(currentPin ? { currentPin } : {}) } });
+    await queryClient.invalidateQueries({ queryKey: key });
+  }, [trial.deviceId, trial.deviceSecret, queryClient]);
 
-    const hashed = await sha256Hex(newPin.trim());
-    setPinHash(hashed);
-    try {
-      localStorage.setItem("bujuu_parent_pin_hash", hashed);
-      localStorage.removeItem("bujuu_parent_pin");
-    } catch {}
-  }, []);
-
-  const closePinModal = useCallback(() => {
-    setIsPinModalOpen(false);
-  }, []);
-
-  return (
-    <ProfileContext.Provider
-      value={{
-        profile,
-        isKids: profile === "kids",
-        switchProfile,
-        hasPin: Boolean(pinHash),
-        setParentPin,
-        isPinModalOpen,
-        closePinModal,
-        verifyPinAndSwitch,
-      }}
-    >
-      {children}
-    </ProfileContext.Provider>
-  );
+  return <ProfileContext.Provider value={{ profile, isKids: profile === "kids", switchProfile, hasPin, pin: hasPin, setParentPin, isPinModalOpen, closePinModal: () => setIsPinModalOpen(false), verifyPinAndSwitch }}>{children}</ProfileContext.Provider>;
 }
 
 export function useProfile() {
   const context = useContext(ProfileContext);
-  if (!context) {
-    throw new Error("useProfile must be used within a ProfileProvider");
-  }
+  if (!context) throw new Error("useProfile must be used within a ProfileProvider");
   return context;
 }

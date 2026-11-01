@@ -17,7 +17,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDeviceTrial } from "@/hooks/use-device-trial";
-import { startPayment, verifyAndActivatePayment } from "@/lib/bujuu.functions";
+import { issueRecoveryCode, startPayment, verifyAndActivatePayment } from "@/lib/bujuu.functions";
 import { normalizeKenyanPhone } from "@/services/payhero";
 
 export const Route = createFileRoute("/subscribe")({
@@ -92,15 +92,14 @@ function SubscribePage() {
           if (statusRes.status === "SUCCESS") {
             setStatusMessage("Payment confirmed! Activating 30-day pass…");
             await trial.refresh();
-            const dbRes = statusRes;
-            const token =
-              typeof (dbRes as any)?.recovery_token === "string"
-                ? (dbRes as any).recovery_token
-                : "";
-            setSuccessData({
-              recoveryToken: token,
-              expiresAt: (dbRes as any)?.subscription_expires_at,
-            });
+            let token = "";
+            try {
+              const issued = await issueRecoveryCode({ data: { deviceId: trial.deviceId, deviceSecret: trial.deviceSecret } });
+              token = issued.recoveryCode;
+            } catch (issueError) {
+              console.warn("Payment confirmed, but transfer code issuance failed:", issueError);
+            }
+            setSuccessData({ recoveryToken: token });
             setWaiting(false);
             toast.success("Subscription activated for 30 days!");
             return;
@@ -134,11 +133,11 @@ function SubscribePage() {
     }
   };
 
-  // Transfer an active subscription to this device by phone number
+  // Transfer an active subscription to this device using a one-time recovery code
   const handleRestore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!recoveryInput.trim()) {
-      toast.error("Please enter the phone number used for your subscription.");
+      toast.error("Enter your one-time transfer code.");
       return;
     }
     setRestoring(true);
@@ -150,7 +149,7 @@ function SubscribePage() {
         expiresAt: res.expiresAt,
       });
     } catch (err: any) {
-      toast.error(err?.message || "No active subscription was found for that number.");
+      toast.error(err?.message || "That transfer code is invalid or already used.");
     } finally {
       setRestoring(false);
     }
@@ -189,11 +188,11 @@ function SubscribePage() {
               <div className="space-y-1">
                 <h3 className="text-xl font-bold text-white">Payment Confirmed!</h3>
                 <p className="text-sm text-zinc-400">
-                  Your device now has 30 days of unlimited access.
+                  Your device now has server-verified access for 30 days.
                 </p>
               </div>
 
-              {successData.recoveryToken && (
+              {successData.recoveryToken ? (
                 <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 p-4 text-left space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wider text-rose-400">
@@ -214,6 +213,8 @@ function SubscribePage() {
                     can enter this code to transfer your subscription.
                   </p>
                 </div>
+              ) : (
+                <p className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-200">Payment is confirmed. You can issue a transfer code later from an active device.</p>
               )}
 
               <Button
@@ -305,7 +306,7 @@ function SubscribePage() {
                 </form>
               )}
 
-              {/* Tab 2: Transfer by subscription phone */}
+              {/* Tab 2: Transfer by one-time recovery code */}
               {activeTab === "restore" && (
                 <form onSubmit={handleRestore} className="space-y-5">
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-2 text-xs text-zinc-400">
@@ -313,18 +314,18 @@ function SubscribePage() {
                       <Tv className="h-4 w-4 text-rose-500" /> Transfer to TV or New Phone
                     </div>
                     <p>
-                      Enter the phone number used for your subscription. Active access transfers to
-                      this device and disconnects the previous device.
+                      Enter the one-time code generated on your currently active device. It can be used once; completing transfer disconnects the previous device.
                     </p>
                   </div>
 
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-                      <KeyRound className="h-4 w-4 text-rose-500" /> Subscription phone number
+                      <KeyRound className="h-4 w-4 text-rose-500" /> One-time transfer code
                     </label>
                     <Input
-                      type="tel"
-                      placeholder="e.g. 0712345678"
+                      type="text"
+                      autoCapitalize="characters"
+                      placeholder="Paste transfer code"
                       value={recoveryInput}
                       onChange={(e) => setRecoveryInput(e.target.value)}
                       disabled={restoring}
@@ -338,7 +339,7 @@ function SubscribePage() {
                     disabled={restoring}
                     className="h-12 w-full rounded-xl bg-rose-600 text-base font-semibold text-white shadow-none transition-colors hover:bg-rose-500"
                   >
-                    {restoring ? "Transferring…" : "Transfer to This Device"}
+                    {restoring ? "Transferring…" : "Use Transfer Code"}
                   </Button>
                 </form>
               )}

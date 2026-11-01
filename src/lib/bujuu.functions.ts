@@ -353,67 +353,72 @@ export const paymentStatus = createServerFn({ method: "POST" })
  * Moves an existing subscription to this device.
  * Rate limited and audited; the previous device is revoked immediately.
  */
-export const claimSubscription = createServerFn({ method: "POST" })
-  .validator((input: unknown) =>
-    credsSchema.extend({ phone: z.string().min(9).max(20) }).parse(input),
-  )
+/** Issues a one-time high-entropy transfer code only for a paid device. The database stores only its hash. */
+export const issueRecoveryCode = createServerFn({ method: "POST" })
+  .validator((input: unknown) => credsSchema.parse(input))
   .handler(async ({ data }) => {
-    const { admin, normalizePhone, rateLimit, clientIp, audit, bindDevice, resolveAccess } =
-      await import("@/lib/bujuu.server");
-
-    const phone = normalizePhone(data.phone);
-    await rateLimit("claim_ip", clientIp(), 8, 900);
-    await rateLimit("claim_phone", phone, 5, 3600);
-
-    const device = await resolveAccess(data);
-    if (!device.deviceRow) throw new Error("This device is not recognised. Please reload the app.");
-
+    const { admin, randomToken, sha256, resolveAccess, rateLimit, clientIp, audit } = await import("@/lib/bujuu.server");
+    await rateLimit("recovery_issue", clientIp(), 5, 3600);
+    const access = await resolveAccess(data);
+    if (!access.deviceRow || !access.subscriberId || !access.active || access.reason === "device_revoked") throw new Error("An active paid subscription is required to issue a transfer code.");
+    const code = randomToken(24).toUpperCase();
     const db = await admin();
-    const { data: subscriber } = await db
-      .from("subscribers")
-      .select("id")
-      .eq("phone", phone)
-      .maybeSingle();
-    if (!subscriber) throw new Error("No subscription found for that number.");
+    const { error } = await db.from("devices").update({ recovery_token_hash: await sha256(code), recovery_token: null }).eq("id", access.deviceRow.id);
+    if (error) throw new Error("Could not issue a recovery code.");
+    await audit("recovery_code_issued", {}, { subscriberId: access.subscriberId, deviceId: access.deviceRow.id });
+    return { recoveryCode: code };
+  });
 
-    const { data: sub } = await db
-      .from("subscriptions")
-      .select("expires_at")
-      .eq("subscriber_id", subscriber.id)
-      .eq("status", "active")
-      .order("expires_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!sub || new Date(sub.expires_at).getTime() <= Date.now()) {
-      throw new Error("That subscription has expired. Please pay again to continue.");
+/** Atomically consumes a one-time recovery code and transfers the paid subscription to this device. */
+export const claimSubscription = createServerFn({ method: "POST" })
+  .validator((input: unknown) => credsSchema.extend({ recoveryCode: z.string().min(32).max(128) }).parse(input))
+  .handler(async ({ data }) => {
+    const { admin, sha256, rateLimit, clientIp, audit, bindDevice, resolveAccess } = await import("@/lib/bujuu.server");
+    await rateLimit("recovery_ip", clientIp(), 6, 3600);
+    const codeHash = await sha256(data.recoveryCode.trim().toUpperCase());
+    await rateLimit("recovery_code", codeHash, 5, 3600);
+    const device = await resolveAccess(data);
+    if (!device.deviceRow || device.reason === "device_revoked") throw new Error("This device is not recognized.");
+    const db = await admin();
+    // Consume atomically; a second device cannot reuse a code after transfer.
+    const { data: oldDevice, error: consumeError } = await db.from("devices").update({ recovery_token_hash: null, revoked_at: new Date().toISOString() }).eq("recovery_token_hash", codeHash).is("revoked_at", null).not("subscriber_id", "is", null).select("id,subscriber_id").maybeSingle();
+    if (consumeError || !oldDevice?.subscriber_id) throw new Error("Recovery code is invalid, expired, or already used.");
+    const { data: subscription } = await db.from("subscriptions").select("expires_at").eq("subscriber_id", oldDevice.subscriber_id).eq("status", "active").order("expires_at", { ascending: false }).limit(1).maybeSingle();
+    if (!subscription || new Date(subscription.expires_at).getTime() <= Date.now()) {
+      await db.from("devices").update({ revoked_at: null, recovery_token_hash: codeHash }).eq("id", oldDevice.id);
+      throw new Error("The subscription has expired.");
     }
-
-    await bindDevice(subscriber.id, device.deviceRow.id);
-    await audit(
-      "device_transferred",
-      { phone },
-      { subscriberId: subscriber.id, deviceId: device.deviceRow.id },
-    );
-    return { active: true, expiresAt: sub.expires_at, phone };
+    await bindDevice(oldDevice.subscriber_id, device.deviceRow.id);
+    await audit("device_transferred", {}, { subscriberId: oldDevice.subscriber_id, deviceId: device.deviceRow.id });
+    return { active: true, expiresAt: subscription.expires_at };
   });
 
 /** The playback gate: the stream address is only built after access is verified. */
 export const getPlaybackSource = createServerFn({ method: "POST" })
   .validator((input: unknown) => playbackSchema.parse(input))
   .handler(async ({ data }) => {
-    const { resolveAccess, rateLimit, clientIp, audit } = await import("@/lib/bujuu.server");
+    const { admin, resolveAccess, rateLimit, clientIp, audit } = await import("@/lib/bujuu.server");
     const { embedUrl, SERVER_COUNT } = await import("@/services/embeds");
 
     await rateLimit("playback", clientIp(), 240, 3600);
     const access = await resolveAccess(data);
-    if (!access.active) {
-      return {
-        allowed: false as const,
-        reason: access.reason,
-        src: null,
-        serverCount: SERVER_COUNT,
-      };
+    if (!access.active && access.reason !== "trial") {
+      return { allowed: false as const, reason: access.reason, src: null, serverCount: SERVER_COUNT };
     }
+    // Kids/adult mode is read from the trusted DB row, never from a browser-supplied flag.
+    const db = await admin();
+    const { data: controls } = await db.from("device_controls").select("active_profile").eq("device_id", access.deviceRow!.id).maybeSingle();
+    if (controls?.active_profile === "kids") {
+      const { tmdbCached } = await import("@/lib/tmdb.server");
+      const detailPath = data.mediaType === "movie" ? `/movie/${data.tmdbId}` : `/tv/${data.tmdbId}`;
+      const details = await tmdbCached(detailPath, {});
+      if (details && typeof details === "object" && "adult" in details && (details as { adult?: unknown }).adult === true) {
+        await audit("kids_playback_blocked", { tmdbId: data.tmdbId, mediaType: data.mediaType }, { deviceId: access.deviceRow!.id });
+        return { allowed: false as const, reason: "kids_restricted" as const, src: null, serverCount: SERVER_COUNT };
+      }
+    }
+    const canStreamTrial = access.reason === "trial" && Boolean(access.trialEndsAt && new Date(access.trialEndsAt).getTime() > Date.now());
+    if (!access.active && !canStreamTrial) return { allowed: false as const, reason: "expired" as const, src: null, serverCount: SERVER_COUNT };
 
     await audit(
       "playback_granted",

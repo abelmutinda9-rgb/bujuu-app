@@ -54,6 +54,7 @@ function ProfilePage() {
   const trial = useDeviceTrial();
   const { pin, setParentPin } = useProfile();
   const [newPinInput, setNewPinInput] = useState("");
+  const [currentPinInput, setCurrentPinInput] = useState("");
 
   const { signedIn, email, state, isPremium: active, refresh } = useAccount();
   const navigate = useNavigate();
@@ -136,13 +137,16 @@ function ProfilePage() {
           {/* Parental PIN Setup */}
           <div className="pt-3 border-t border-zinc-800/80 space-y-2">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
-              <Shield className="h-4 w-4 text-amber-400" /> Parental Control PIN (Adult Profile Protection)
+              <Shield className="h-4 w-4 text-amber-400" /> Parental Control PIN (server-verified for this device)
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2">
+              {pin && <Input type="password" inputMode="numeric" maxLength={4} placeholder="Current PIN required" value={currentPinInput} onChange={(e) => setCurrentPinInput(e.target.value.replace(/\D/g, "").slice(0, 4))} className="h-9 bg-zinc-950 border-zinc-800 text-xs text-white rounded-lg" />}
+              <div className="flex gap-2">
               <Input
                 type="password"
+                inputMode="numeric"
                 maxLength={4}
-                placeholder={pin ? "•••• (PIN is set)" : "Enter 4-digit PIN"}
+                placeholder={pin ? "New 4-digit PIN" : "Enter 4-digit PIN"}
                 value={newPinInput}
                 onChange={(e) => setNewPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 className="h-9 bg-zinc-950 border-zinc-800 text-xs text-white rounded-lg"
@@ -152,12 +156,13 @@ function ProfilePage() {
                 variant="secondary"
                 onClick={() => {
                   if (newPinInput.length === 4) {
-                    setParentPin(newPinInput);
-                    setNewPinInput("");
-                    toast.success("Parental PIN set successfully!");
+                    void setParentPin(newPinInput, currentPinInput || undefined).then(() => {
+                      setNewPinInput(""); setCurrentPinInput(""); toast.success("Parental PIN saved securely on this device.");
+                    }).catch((err) => toast.error(err?.message || "Could not save PIN."));
                   } else if (newPinInput === "" && pin) {
-                    setParentPin("");
-                    toast.info("Parental PIN removed.");
+                    void setParentPin("", currentPinInput || undefined).then(() => {
+                      setCurrentPinInput(""); toast.info("Parental PIN removed.");
+                    }).catch((err) => toast.error(err?.message || "Could not remove PIN."));
                   } else {
                     toast.error("PIN must be exactly 4 digits.");
                   }
@@ -166,6 +171,7 @@ function ProfilePage() {
               >
                 {newPinInput ? "Save PIN" : pin ? "Remove PIN" : "Set PIN"}
               </Button>
+              </div>
             </div>
           </div>
         </div>

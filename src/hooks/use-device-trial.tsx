@@ -74,10 +74,10 @@ export function useDeviceTrial() {
 
   /** Transfer an existing subscription to this device using a recovery code */
   const transferSubscription = useCallback(
-    async (phone: string) => {
+    async (recoveryCode: string) => {
       const current = typeof window !== "undefined" ? loadDeviceCredentials() : null;
       if (!current) throw new Error("This device is not registered yet.");
-      const res = await claimSubscription({ data: { ...current, phone } });
+      const res = await claimSubscription({ data: { ...current, recoveryCode } });
       await refresh();
       return res;
     },
