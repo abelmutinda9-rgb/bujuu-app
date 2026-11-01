@@ -61,8 +61,14 @@ export async function requestStkPush(params: {
   deviceId?: string | null;
 }): Promise<PayHeroStkResponse> {
   const cleanPhone = normalizeKenyanPhone(params.phone);
-  const ref = `bujuu_${(params.userId || params.deviceId || "guest").slice(0, 8)}_${Date.now()}`;
+  const rawId = params.deviceId || params.userId || "guest";
+  const cleanTag = rawId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+  const ref = `bujuu_${cleanTag}_${Date.now()}`;
   const auth = btoa(`${PAYHERO_API_USERNAME}:${PAYHERO_API_PASSWORD}`);
+
+  const supabaseUrl =
+    (import.meta as any).env?.VITE_SUPABASE_URL || "https://uwhawjcknqilypbgoyxo.supabase.co";
+  const callbackUrl = `${supabaseUrl}/functions/v1/payhero-webhook`;
 
   const payload = {
     amount: PLAN_AMOUNT,
@@ -70,7 +76,7 @@ export async function requestStkPush(params: {
     channel_id: PAYHERO_CHANNEL_ID,
     provider: "m-pesa",
     external_reference: ref,
-    callback_url: "https://lynnn.lovable.app/api/public/payhero-callback",
+    callback_url: callbackUrl,
   };
 
   const isNative = Capacitor.isNativePlatform();
