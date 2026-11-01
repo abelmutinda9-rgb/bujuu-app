@@ -459,3 +459,263 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.resolve_stream_source(TEXT, INTEGER, TEXT, INTEGER, INTEGER, INTEGER) TO anon, authenticated;
+
+
+-- =============================================================================
+-- PAYMENT ACTIVATION, SUBSCRIPTION RECOVERY, AND GOOGLE DEVICE TRANSFER RPCS
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS public.subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  subscriber_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  phone TEXT,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  recovery_token TEXT UNIQUE,
+  starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can read own subscriptions"
+  ON public.subscriptions FOR SELECT
+  USING (auth.uid() = user_id OR auth.uid() = subscriber_id);
+
+-- Confirm payment success and activate 30-day subscription
+CREATE OR REPLACE FUNCTION public.confirm_payment_success(
+  p_device_id TEXT,
+  p_reference TEXT,
+  p_phone TEXT,
+  p_raw JSONB DEFAULT '{}'::jsonb
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_subscriber_id UUID;
+  v_user_id UUID := auth.uid();
+  v_recovery_token TEXT;
+  v_expires_at TIMESTAMPTZ := NOW() + INTERVAL '30 days';
+  v_payment_id UUID;
+BEGIN
+  -- Find or create profile for this device
+  SELECT id INTO v_subscriber_id
+  FROM public.profiles
+  WHERE device_id = p_device_id
+  LIMIT 1;
+
+  IF v_subscriber_id IS NULL THEN
+    INSERT INTO public.profiles (device_id, user_id)
+    VALUES (p_device_id, v_user_id)
+    RETURNING id INTO v_subscriber_id;
+  END IF;
+
+  -- Ensure device is mapped
+  INSERT INTO public.devices (id, device_id, subscriber_id)
+  VALUES (p_device_id, p_device_id, v_subscriber_id)
+  ON CONFLICT (id) DO UPDATE
+    SET subscriber_id = v_subscriber_id,
+        revoked_at = NULL,
+        last_seen_at = NOW();
+
+  -- Generate human-friendly recovery token
+  v_recovery_token := 'BUJ-' || UPPER(SUBSTRING(MD5(p_device_id || p_reference || NOW()::text) FROM 1 FOR 8));
+
+  -- Record payment
+  INSERT INTO public.payments (
+    reference,
+    phone,
+    amount,
+    currency,
+    status,
+    raw_payload,
+    subscriber_id,
+    user_id
+  )
+  VALUES (
+    p_reference,
+    p_phone,
+    150,
+    'KES',
+    'SUCCESS',
+    p_raw,
+    v_subscriber_id,
+    v_user_id
+  )
+  ON CONFLICT (reference) DO UPDATE
+    SET status = 'SUCCESS',
+        raw_payload = p_raw
+  RETURNING id INTO v_payment_id;
+
+  -- Upsert subscription
+  INSERT INTO public.subscriptions (
+    subscriber_id,
+    user_id,
+    phone,
+    status,
+    recovery_token,
+    starts_at,
+    expires_at
+  )
+  VALUES (
+    v_subscriber_id,
+    v_user_id,
+    p_phone,
+    'ACTIVE',
+    v_recovery_token,
+    NOW(),
+    v_expires_at
+  );
+
+  RETURN jsonb_build_object(
+    'success', TRUE,
+    'recovery_token', v_recovery_token,
+    'subscription_expires_at', v_expires_at,
+    'subscriber_id', v_subscriber_id
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.confirm_payment_success(TEXT, TEXT, TEXT, JSONB) TO anon, authenticated;
+
+-- Recover/Transfer subscription using recovery token
+CREATE OR REPLACE FUNCTION public.recover_subscription(
+  p_token TEXT,
+  p_new_device_id TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_sub RECORD;
+  v_new_subscriber_id UUID;
+  v_user_id UUID := auth.uid();
+BEGIN
+  SELECT * INTO v_sub
+  FROM public.subscriptions
+  WHERE recovery_token = TRIM(p_token)
+    AND status = 'ACTIVE'
+    AND expires_at > NOW()
+  LIMIT 1;
+
+  IF v_sub.id IS NULL THEN
+    RETURN jsonb_build_object('success', FALSE, 'error', 'Invalid or expired recovery code');
+  END IF;
+
+  -- Map new device to this subscription
+  SELECT id INTO v_new_subscriber_id
+  FROM public.profiles
+  WHERE device_id = p_new_device_id
+  LIMIT 1;
+
+  IF v_new_subscriber_id IS NULL THEN
+    INSERT INTO public.profiles (device_id, user_id)
+    VALUES (p_new_device_id, COALESCE(v_user_id, v_sub.user_id))
+    RETURNING id INTO v_new_subscriber_id;
+  END IF;
+
+  -- Rebind device table
+  INSERT INTO public.devices (id, device_id, subscriber_id)
+  VALUES (p_new_device_id, p_new_device_id, v_new_subscriber_id)
+  ON CONFLICT (id) DO UPDATE
+    SET subscriber_id = v_new_subscriber_id,
+        revoked_at = NULL,
+        last_seen_at = NOW();
+
+  -- Update subscription ownership
+  UPDATE public.subscriptions
+  SET subscriber_id = v_new_subscriber_id,
+      user_id = COALESCE(v_user_id, user_id),
+      updated_at = NOW()
+  WHERE id = v_sub.id;
+
+  RETURN jsonb_build_object(
+    'success', TRUE,
+    'recovery_token', v_sub.recovery_token,
+    'subscription_expires_at', v_sub.expires_at
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.recover_subscription(TEXT, TEXT) TO anon, authenticated;
+
+-- Transfer subscription via authenticated Google account session
+CREATE OR REPLACE FUNCTION public.transfer_subscription_to_device(
+  p_user_id TEXT,
+  p_device_id TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID;
+  v_sub RECORD;
+  v_profile_id UUID;
+BEGIN
+  BEGIN
+    v_uid := p_user_id::UUID;
+  EXCEPTION WHEN OTHERS THEN
+    v_uid := auth.uid();
+  END;
+
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('success', FALSE, 'error', 'User not authenticated');
+  END IF;
+
+  SELECT * INTO v_sub
+  FROM public.subscriptions
+  WHERE (user_id = v_uid OR subscriber_id IN (SELECT id FROM public.profiles WHERE user_id = v_uid))
+    AND status = 'ACTIVE'
+    AND expires_at > NOW()
+  ORDER BY expires_at DESC
+  LIMIT 1;
+
+  IF v_sub.id IS NULL THEN
+    RETURN jsonb_build_object('success', FALSE, 'error', 'No active subscription found for this Google account');
+  END IF;
+
+  -- Bind current device
+  SELECT id INTO v_profile_id
+  FROM public.profiles
+  WHERE device_id = p_device_id
+  LIMIT 1;
+
+  IF v_profile_id IS NULL THEN
+    INSERT INTO public.profiles (device_id, user_id)
+    VALUES (p_device_id, v_uid)
+    RETURNING id INTO v_profile_id;
+  ELSE
+    UPDATE public.profiles SET user_id = v_uid WHERE id = v_profile_id;
+  END IF;
+
+  INSERT INTO public.devices (id, device_id, subscriber_id)
+  VALUES (p_device_id, p_device_id, v_profile_id)
+  ON CONFLICT (id) DO UPDATE
+    SET subscriber_id = v_profile_id,
+        revoked_at = NULL,
+        last_seen_at = NOW();
+
+  UPDATE public.subscriptions
+  SET subscriber_id = v_profile_id,
+      user_id = v_uid,
+      updated_at = NOW()
+  WHERE id = v_sub.id;
+
+  RETURN jsonb_build_object(
+    'success', TRUE,
+    'recovery_token', v_sub.recovery_token,
+    'subscription_expires_at', v_sub.expires_at
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.transfer_subscription_to_device(TEXT, TEXT) TO anon, authenticated;
