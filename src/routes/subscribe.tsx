@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { CheckCircle2, Copy, KeyRound, Loader2, ShieldCheck, Smartphone, Sparkles, Tv } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -44,6 +44,33 @@ function SubscribePage() {
 
   const target = search.redirect && search.redirect.startsWith("/") ? search.redirect : "/";
 
+  // Check and auto-activate pending payment if user refreshed or switched apps during M-Pesa PIN entry
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("bujuu_pending_payment");
+      if (!stored) return;
+      const parsed = JSON.parse(stored);
+      if (Date.now() - (parsed.startedAt || 0) > 15 * 60 * 1000) {
+        localStorage.removeItem("bujuu_pending_payment");
+        return;
+      }
+      checkPaymentStatus(parsed.reference).then(async (statusRes) => {
+        if (statusRes.status === "SUCCESS") {
+          const dbRes = await trial.confirmPayment(parsed.reference, parsed.phone, statusRes.raw);
+          const token = (dbRes as any)?.recovery_token || "BUJ-" + trial.deviceId.slice(0, 6).toUpperCase();
+          setSuccessData({
+            recoveryToken: token,
+            expiresAt: (dbRes as any)?.subscription_expires_at,
+          });
+          localStorage.removeItem("bujuu_pending_payment");
+          toast.success("Previous payment confirmed! 30-day access activated.");
+        } else if (statusRes.status === "FAILED") {
+          localStorage.removeItem("bujuu_pending_payment");
+        }
+      }).catch(() => {});
+    } catch {}
+  }, [trial]);
+
   // Handle PayHero STK Push
   const handleStartPayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +86,9 @@ function SubscribePage() {
 
       setStatusMessage("Enter your M-Pesa PIN on your phone…");
       toast.success("M-Pesa STK prompt sent to " + cleanPhone);
+      try {
+        localStorage.setItem("bujuu_pending_payment", JSON.stringify({ reference: res.reference, phone: cleanPhone, startedAt: Date.now() }));
+      } catch {}
 
       // Start authoritative polling
       let attempts = 0;
@@ -76,12 +106,14 @@ function SubscribePage() {
               expiresAt: (dbRes as any)?.subscription_expires_at,
             });
             setWaiting(false);
+            try { localStorage.removeItem("bujuu_pending_payment"); } catch {}
             toast.success("Subscription activated for 30 days!");
             return;
           }
           if (statusRes.status === "FAILED") {
             setWaiting(false);
             setStatusMessage("");
+            try { localStorage.removeItem("bujuu_pending_payment"); } catch {}
             toast.error("Payment was cancelled or failed. Please try again.");
             return;
           }
