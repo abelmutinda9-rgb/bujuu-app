@@ -192,8 +192,8 @@ export function useAccount() {
         }
         return state;
       } catch (err) {
-        console.warn("syncAccount remote function failed; using authoritative Supabase queries:", err);
-        return await fetchClientAccountState(userId!);
+        console.warn("Account server verification failed; access remains unavailable:", err);
+        throw err;
       }
     },
   });
@@ -207,8 +207,17 @@ export function useAccount() {
     queryFn: async () => {
       try {
         return await myStatus({ data: { ...creds! } });
-      } catch {
-        return await fetchClientAccountState(userId!);
+      } catch (error) {
+        console.warn("Account status server verification failed; denying access:", error);
+        return {
+          status: "NO_SUBSCRIPTION" as const,
+          isPremium: false,
+          phone: null,
+          expiresAt: null,
+          autoRenew: false,
+          deviceAuthorized: false,
+          subscriberId: null,
+        };
       }
     },
   });
@@ -218,28 +227,8 @@ export function useAccount() {
     void queryClient.invalidateQueries({ queryKey: ["account-status"] });
   }, [queryClient]);
 
-  // Read verified device-level subscription for active playback on current device
-  const localDeviceSub: AccountState | null = (() => {
-    try {
-      const raw = typeof localStorage !== "undefined" ? localStorage.getItem("bujuu_sub_device") : null;
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (parsed?.expiresAt && new Date(parsed.expiresAt).getTime() > Date.now()) {
-        return {
-          status: "ACTIVE" as const,
-          isPremium: true,
-          phone: parsed.phone || null,
-          expiresAt: parsed.expiresAt,
-          autoRenew: false,
-          deviceAuthorized: true,
-          subscriberId: "device",
-        };
-      }
-    } catch {}
-    return null;
-  })();
-
-  const state = status.data ?? sync.data ?? localDeviceSub ?? null;
+  // Access is derived only from successful server responses. No local entitlement cache is trusted.
+  const state = status.data ?? sync.data ?? null;
   const isPremium = state?.isPremium === true && state?.status === "ACTIVE";
   const hasSub = state ? state.status === "ACTIVE" || state.status === "DEVICE_NOT_AUTHORIZED" : false;
 

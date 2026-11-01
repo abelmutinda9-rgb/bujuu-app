@@ -8,9 +8,9 @@ import { z } from "zod";
 import { useAccount } from "@/hooks/use-account";
 import { useProfile } from "@/context/profile-context";
 import { useDeviceTrial } from "@/hooks/use-device-trial";
-import { embedUrl, PROVIDERS, SERVER_COUNT } from "@/services/embeds";
-import { saveOfflineDownload } from "@/services/downloads";
+import { PROVIDERS, SERVER_COUNT } from "@/services/embeds";
 import { toast } from "sonner";
+import { getPlaybackSource } from "@/lib/bujuu.functions";
 import { detailsQuery, seasonQuery, stillUrl } from "@/services/tmdb";
 
 const searchSchema = z.object({
@@ -84,34 +84,29 @@ function Watch() {
     }
   }, [showEpisodes, pingControls]);
 
-    const details = useQuery(detailsQuery(tmdbId, mediaType));
-
-  const handleSaveOffline = () => {
-    const title = details.data?.title ?? details.data?.name ?? `Media ${tmdbId}`;
-    saveOfflineDownload({
-      id: `${mediaType}_${tmdbId}_${season}_${episode}`,
-      tmdbId,
-      title,
-      posterPath: details.data?.poster_path ?? "",
-      backdropPath: details.data?.backdrop_path ?? "",
-      mediaType,
-      season: isTv ? season : undefined,
-      episode: isTv ? episode : undefined,
-      quality: "1080p Full HD",
-      fileSizeBytes: 920 * 1024 * 1024,
-      fileSizeFormatted: "920 MB",
-      downloadUrl: src ?? undefined,
-      status: "completed",
-      progress: 100,
-      downloadedAt: new Date().toISOString(),
-    });
-    toast.success(`"${title}" added to your Offline Library!`);
-  };
+  const details = useQuery(detailsQuery(tmdbId, mediaType));
+  const handleSaveOffline = () => toast.info("This stream does not provide a verified downloadable file.");
   const isAdultRestricted = Boolean(isKids && details.data?.adult);
 
-  // Strict entitlement check: only generate embed URL when actively subscribed, trial active, and not age-restricted
-  const canPlay = (trial.canStream || Boolean(isPremium && state?.status === "ACTIVE")) && !isAdultRestricted;
-  const src = canPlay ? embedUrl({ tmdbId, mediaType, season, episode }, server) : null;
+  // The server validates the device secret and current trial/subscription before returning a source.
+  const playback = useQuery({
+    queryKey: ["bujuu-authorized-playback", trial.deviceId, tmdbId, mediaType, season, episode, server],
+    enabled: Boolean(trial.deviceId && trial.deviceSecret && trial.canStream && !isAdultRestricted),
+    retry: false,
+    queryFn: () => getPlaybackSource({
+      data: {
+        deviceId: trial.deviceId,
+        deviceSecret: trial.deviceSecret,
+        tmdbId,
+        mediaType,
+        season,
+        episode,
+        server,
+      },
+    }),
+  });
+  const canPlay = Boolean(playback.data?.allowed) && !isAdultRestricted;
+  const src = playback.data?.allowed ? playback.data.src : null;
 
   // Reset loading state and set safety reveal timeout whenever the source changes
   useEffect(() => {

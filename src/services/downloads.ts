@@ -1,6 +1,6 @@
 /**
  * BUJUU Offline Media Download Manager
- * Tracks downloaded movies and episodes on device, local media storage, and offline playback.
+ * Local UI registry for confirmed downloaded files only. Never stores payment or entitlement state.
  */
 
 export interface OfflineMediaItem {
