@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Check, Info, Plus, Play } from "lucide-react";
+import { Check, Info, Plus, Play, Sparkles, Volume2, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -31,185 +31,149 @@ export function HeroBanner({
   );
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [failedImages, setFailedImages] = useState<Set<number>>(() => new Set());
   const currentItem = rotationItems[currentIndex] ?? item;
   const myList = useMyListToggle(currentItem);
-  const { isPremium, signedIn } = useAccount();
   const trial = useDeviceTrial();
   const { isKids } = useProfile();
   const navigate = useNavigate();
 
   useEffect(() => {
-    setCurrentIndex(0);
-  }, [rotationItems.map((media) => media.id).join(",")]);
-
-  useEffect(() => {
-    if (rotationItems.length < 2 || isPaused) return;
-    const timer = window.setInterval(
-      () => setCurrentIndex((index) => (index + 1) % rotationItems.length),
-      4000,
-    );
-    return () => window.clearInterval(timer);
+    if (rotationItems.length <= 1 || isPaused) return;
+    const timer = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % rotationItems.length);
+    }, 8000);
+    return () => clearInterval(timer);
   }, [rotationItems.length, isPaused]);
 
-  useEffect(() => {
-    if (rotationItems.length < 2) return;
-    const next = rotationItems[(currentIndex + 1) % rotationItems.length];
-    const nextUrl = next?.backdropPath && backdropUrl(next.backdropPath, "w1280");
-    if (nextUrl) {
-      const image = new Image();
-      image.src = nextUrl;
-    }
-  }, [currentIndex, rotationItems]);
+  if (!currentItem) return null;
 
-  if (!currentItem) return <div className="h-[70vh] w-full animate-pulse bg-card lg:h-[80vh]" />;
+  const title = currentItem.title ?? currentItem.name ?? "Featured Title";
+  const bg = backdropUrl(currentItem.backdrop_path ?? currentItem.poster_path, "original");
+  const year = (currentItem.release_date ?? currentItem.first_air_date)?.slice(0, 4);
+  const mediaType = currentItem.media_type ?? (currentItem.title ? "movie" : "tv");
+  const genres = (currentItem.genre_ids ?? [])
+    .map((id) => GENRES[id])
+    .filter(Boolean)
+    .slice(0, 3);
 
-  const background = currentItem.backdropPath
-    ? backdropUrl(currentItem.backdropPath, "w1280")
-    : undefined;
-  const tags = currentItem.genreIds.map((id) => GENRES[id]).filter(Boolean).slice(0, 3);
-  const year = currentItem.releaseDate ? new Date(currentItem.releaseDate).getFullYear() : undefined;
-
-  const handlePlayClick = (e: React.MouseEvent | React.KeyboardEvent) => {
+  const handlePlay = () => {
     if (isKids && currentItem.adult) {
-      e.preventDefault();
-      toast.error("This title is restricted in Kids Mode.");
+      toast.error("Adult title blocked in Kids profile.");
       return;
     }
-    const canStream = trial.canStream || (signedIn && isPremium);
-    if (!canStream) {
-      e.preventDefault();
-      toast.error("Active subscription or trial required to watch movies.");
-      void navigate({
-        to: "/subscribe",
-        search: {
-          redirect: `/watch?tmdbId=${currentItem.id}&mediaType=${currentItem.mediaType}&season=1&episode=1`,
-        },
-      });
-    }
-  };
-
-  const handlePlayKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      handlePlayClick(e);
-      const canStream = trial.canStream || (signedIn && isPremium);
-      if (canStream && !(isKids && currentItem.adult)) {
-        void navigate({
-          to: "/watch",
-          search: { tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 },
-        });
-      }
-    }
+    navigate({ to: "/watch", search: { tmdbId: currentItem.id, type: mediaType } });
   };
 
   return (
-    <section
-      className="group relative h-[72vh] min-h-[440px] max-h-[900px] w-full overflow-hidden bg-zinc-950 lg:h-[85vh]"
-      aria-label="Featured titles"
+    <div
+      className="relative aspect-[16/9] sm:aspect-[21/9] w-full max-h-[82vh] min-h-[480px] overflow-hidden select-none bg-zinc-950"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
-      onFocus={() => setIsPaused(true)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsPaused(false);
-      }}
-      onTouchStart={() => setIsPaused(true)}
-      onTouchEnd={() => setIsPaused(false)}
     >
-      {rotationItems.map((media, index) => {
-        const imageUrl = media.backdropPath ? backdropUrl(media.backdropPath, "w1280") : undefined;
-        const failed = failedImages.has(media.id);
-        return (
-          <div
-            key={`${media.mediaType}-${media.id}`}
-            aria-hidden={index !== currentIndex}
-            className={`absolute inset-0 transition-opacity duration-1000 ease-in-out motion-reduce:transition-none ${index === currentIndex ? "z-10 opacity-100" : "pointer-events-none z-0 opacity-0"}`}
-          >
-            {imageUrl && !failed ? (
-              <img
-                src={imageUrl}
-                alt=""
-                aria-hidden="true"
-                loading={index === currentIndex ? "eager" : "lazy"}
-                decoding="async"
-                onError={() => setFailedImages((prev) => new Set(prev).add(media.id))}
-                className={`h-full w-full object-cover object-center transition-transform duration-[9000ms] ease-out motion-reduce:transform-none ${index === currentIndex ? "scale-105" : "scale-100"}`}
-              />
-            ) : null}
-          </div>
-        );
-      })}
+      {/* High-res Atmospheric Backdrop with Multi-layered Gradient */}
+      <img
+        src={bg}
+        alt={title}
+        className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-1000 ease-out scale-100 hover:scale-105"
+      />
 
-      <div className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-t from-black via-black/55 to-black/15" />
-      <div className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-r from-black/80 via-black/35 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-28 bg-gradient-to-t from-black to-transparent" />
+      {/* Cinematic Vignette Overlays */}
+      <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-r from-background via-background/60 to-transparent w-full sm:w-2/3" />
+      <div className="absolute inset-0 bg-radial-at-t from-transparent via-black/20 to-black/80" />
 
-      <div className="relative z-30 flex h-full flex-col justify-end gap-3 px-4 pb-14 sm:px-6 sm:pb-16 lg:px-12 lg:pb-20">
-        <div className="flex items-center gap-2">
-          <span className="rounded-full bg-rose-600 px-2.5 py-0.5 text-[10px] font-bold tracking-widest text-white sm:text-xs">FEATURED</span>
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/80">{currentItem.mediaType === "tv" ? "Series" : "Movie"}</span>
-        </div>
-        <h1 className="max-w-2xl text-2xl font-black leading-tight text-white drop-shadow-md sm:text-4xl lg:text-6xl">{currentItem.title}</h1>
-        {(year || tags.length > 0) && (
-          <p className="flex flex-wrap items-center gap-2 text-xs font-medium text-white/80 sm:text-sm">
-            {year && <span>{year}</span>}
-            {year && tags.length > 0 && <span aria-hidden="true">•</span>}
-            {tags.length > 0 && <span>{tags.join(" • ")}</span>}
-          </p>
-        )}
-        {currentItem.overview && <p className="line-clamp-2 max-w-xl text-xs text-white/80 sm:line-clamp-3 sm:text-sm lg:text-base">{currentItem.overview}</p>}
-
-        {/* TV Remote navigable actions */}
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <Link
-            to="/watch"
-            search={{ tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 }}
-            onClick={handlePlayClick}
-            onKeyDown={handlePlayKeyDown}
-            tabIndex={0}
-            aria-label={`Play ${currentItem.title}`}
-            className="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-black text-black shadow-2xl transition-all duration-200 outline-none hover:scale-105 active:scale-95 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-rose-500 focus-visible:bg-rose-500 focus-visible:text-white"
-          >
-            <Play className="h-5 w-5 fill-current" /> Play
-          </Link>
-          {onSelect && (
-            <button
-              type="button"
-              tabIndex={0}
-              onClick={() => onSelect(currentItem)}
-              className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-6 py-3 text-sm font-bold text-white backdrop-blur-md transition-all duration-200 outline-none hover:bg-white/30 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-white"
-            >
-              <Info className="h-5 w-5" /> More Info
-            </button>
+      {/* Content Container */}
+      <div className="absolute inset-0 flex flex-col justify-end p-6 sm:p-12 lg:p-16 max-w-3xl space-y-4">
+        {/* Quality Badges and Metadata Pills */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white text-[11px] font-black tracking-wider uppercase shadow-md shadow-rose-600/30">
+            Top 10 Today
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-white/10 border border-white/20 text-[10px] font-bold text-white uppercase tracking-wider backdrop-blur-md">
+            4K Ultra HD
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-white/10 border border-white/20 text-[10px] font-bold text-white uppercase tracking-wider backdrop-blur-md">
+            Dolby Atmos
+          </span>
+          {year && (
+            <span className="text-xs font-semibold text-zinc-300">
+              {year}
+            </span>
           )}
-          <button
-            type="button"
-            tabIndex={0}
-            onClick={myList.onToggle}
-            disabled={myList.pending}
-            aria-label={myList.inList ? "Remove from My List" : "Add to My List"}
-            className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-medium text-white backdrop-blur-md transition-all duration-200 outline-none hover:bg-white/20 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-white"
-          >
-            {myList.inList ? <Check className="h-5 w-5 text-rose-500" /> : <Plus className="h-5 w-5" />}
-            <span>{myList.inList ? "In My List" : "My List"}</span>
-          </button>
+          {currentItem.vote_average ? (
+            <span className="text-xs font-bold text-amber-400 flex items-center gap-1">
+              ★ {currentItem.vote_average.toFixed(1)}
+            </span>
+          ) : null}
         </div>
 
-        {rotationItems.length > 1 && (
-          <div className="mt-2 flex items-center gap-2" role="group" aria-label="Featured title slides">
-            {rotationItems.map((media, index) => (
-              <button
-                key={`${media.mediaType}-${media.id}`}
-                type="button"
-                tabIndex={0}
-                onClick={() => setCurrentIndex(index)}
-                aria-label={`Show ${media.title}`}
-                aria-current={index === currentIndex ? "true" : undefined}
-                className={`h-2.5 rounded-full transition-all motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-white ${index === currentIndex ? "w-8 bg-rose-500" : "w-2.5 bg-white/50 hover:bg-white/80"}`}
-              />
+        {/* Title */}
+        <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight drop-shadow-2xl leading-[1.05]">
+          {title}
+        </h1>
+
+        {/* Genres */}
+        {genres.length > 0 && (
+          <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
+            {genres.map((g, idx) => (
+              <span key={g} className="flex items-center gap-2">
+                {g}
+                {idx < genres.length - 1 && <span className="text-zinc-600">•</span>}
+              </span>
             ))}
           </div>
         )}
+
+        {/* Overview */}
+        <p className="line-clamp-2 sm:line-clamp-3 text-xs sm:text-sm text-zinc-300 max-w-xl leading-relaxed drop-shadow">
+          {currentItem.overview}
+        </p>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            onClick={handlePlay}
+            className="inline-flex items-center justify-center gap-2 px-6 sm:px-8 py-3 rounded-2xl bg-white text-black font-extrabold text-xs sm:text-sm hover:bg-zinc-200 transition-all shadow-xl shadow-white/10 active:scale-95"
+          >
+            <Play className="h-4 w-4 fill-black" />
+            Watch Now
+          </button>
+
+          <button
+            onClick={() => myList.toggle()}
+            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-zinc-900/80 border border-zinc-700/80 text-white font-bold text-xs sm:text-sm hover:bg-zinc-800 transition-all backdrop-blur-md active:scale-95"
+          >
+            {myList.inList ? <Check className="h-4 w-4 text-emerald-400" /> : <Plus className="h-4 w-4" />}
+            {myList.inList ? "In My List" : "My List"}
+          </button>
+
+          {onSelect && (
+            <button
+              onClick={() => onSelect(currentItem)}
+              className="inline-flex items-center justify-center p-3 rounded-2xl bg-zinc-900/80 border border-zinc-700/80 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all backdrop-blur-md"
+              title="More info"
+            >
+              <Info className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
-    </section>
+
+      {/* Rotation Pagination Indicators */}
+      {rotationItems.length > 1 && (
+        <div className="absolute bottom-6 right-6 sm:right-12 hidden sm:flex items-center gap-1.5 z-10">
+          {rotationItems.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => setCurrentIndex(idx)}
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                idx === currentIndex ? "w-6 bg-rose-500" : "w-1.5 bg-white/30 hover:bg-white/60"
+              }`}
+              aria-label={`Slide ${idx + 1}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

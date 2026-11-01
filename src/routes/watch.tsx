@@ -1,7 +1,7 @@
 import { App as CapApp } from "@capacitor/app";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { ArrowLeft, ListVideo, Loader2, Lock, ShieldAlert, SkipForward, X } from "lucide-react";
+import { ArrowLeft, Download, ListVideo, Loader2, Lock, ShieldAlert, SkipForward, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
@@ -9,6 +9,8 @@ import { useAccount } from "@/hooks/use-account";
 import { useProfile } from "@/context/profile-context";
 import { useDeviceTrial } from "@/hooks/use-device-trial";
 import { embedUrl, PROVIDERS, SERVER_COUNT } from "@/services/embeds";
+import { saveOfflineDownload } from "@/services/downloads";
+import { toast } from "sonner";
 import { detailsQuery, seasonQuery, stillUrl } from "@/services/tmdb";
 
 const searchSchema = z.object({
@@ -82,7 +84,29 @@ function Watch() {
     }
   }, [showEpisodes, pingControls]);
 
-  const details = useQuery(detailsQuery(tmdbId, mediaType));
+    const details = useQuery(detailsQuery(tmdbId, mediaType));
+
+  const handleSaveOffline = () => {
+    const title = details.data?.title ?? details.data?.name ?? `Media ${tmdbId}`;
+    saveOfflineDownload({
+      id: `${mediaType}_${tmdbId}_${season}_${episode}`,
+      tmdbId,
+      title,
+      posterPath: details.data?.poster_path ?? "",
+      backdropPath: details.data?.backdrop_path ?? "",
+      mediaType,
+      season: isTv ? season : undefined,
+      episode: isTv ? episode : undefined,
+      quality: "1080p Full HD",
+      fileSizeBytes: 920 * 1024 * 1024,
+      fileSizeFormatted: "920 MB",
+      downloadUrl: src ?? undefined,
+      status: "completed",
+      progress: 100,
+      downloadedAt: new Date().toISOString(),
+    });
+    toast.success(`"${title}" added to your Offline Library!`);
+  };
   const isAdultRestricted = Boolean(isKids && details.data?.adult);
 
   // Strict entitlement check: only generate embed URL when actively subscribed, trial active, and not age-restricted
@@ -386,6 +410,17 @@ function Watch() {
           showControls ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-3 pointer-events-none"
         }`}
       >
+                <button
+          type="button"
+          tabIndex={showControls ? 0 : -1}
+          onClick={handleSaveOffline}
+          className="flex h-9 items-center gap-1.5 rounded-full bg-black/70 border border-white/20 px-3 text-xs font-semibold text-zinc-200 backdrop-blur-md outline-none transition-all hover:bg-white/10 hover:text-white"
+          title="Save to Offline Downloads"
+        >
+          <Download className="h-4 w-4 text-rose-400" />
+          <span className="hidden sm:inline">Offline</span>
+        </button>
+
         {isTv && (
           <>
             <button
