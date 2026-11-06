@@ -9,8 +9,9 @@ import { Paywall, usePlaybackGate } from "@/components/Paywall";
 import { useSession } from "@/hooks/use-account";
 import { useDeviceTrial } from "@/hooks/use-device-trial";
 import { supabase } from "@/integrations/supabase/client";
-import { countRecentlyActiveDevices, deviceHeartbeatInterval, deviceLimitForPlan, getPersistentDeviceId, sendDeviceHeartbeat, type SubscriptionPlan } from "@/lib/concurrency";
+import { deviceLimitForPlan, getPersistentDeviceId, type SubscriptionPlan } from "@/lib/concurrency";
 import { saveContinueWatching } from "@/lib/history";
+import { fetchActivePlan } from "@/lib/subscription-plan";
 import { tmdbQuery } from "@/lib/tmdb.functions";
 import { resolveBackendStream, SERVERS, SERVER_COUNT } from "@/services/embeds";
 import { detailsQuery, seasonQuery, stillUrl } from "@/services/tmdb";
@@ -22,7 +23,6 @@ function Watch() {
   const { tmdbId, mediaType, season, episode } = Route.useSearch();
   const navigate = useNavigate({ from: "/watch" });
   const { gate, refresh, trial } = usePlaybackGate();
-  const accountTrial = useDeviceTrial();
   const { session } = useSession();
   const userId = session?.user.id;
   const details = useQuery(detailsQuery(tmdbId, mediaType));
@@ -34,10 +34,19 @@ function Watch() {
   const [deviceBlocked, setDeviceBlocked] = useState(false);
   const [activeDevices, setActiveDevices] = useState(0);
   const [controls, setControls] = useState(true);
-  const [plan, setPlan] = useState<SubscriptionPlan>("solo");
+  const [playHere, setPlayHere] = useState(false);
   const [deviceId] = useState(getPersistentDeviceId);
   const timer = useRef<number | null>(null);
 
+  const planQuery = useQuery({
+    queryKey: ["subscription-plan", userId],
+    enabled: Boolean(userId),
+    queryFn: () => fetchActivePlan(userId!),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const plan: SubscriptionPlan = planQuery.data?.plan ?? "solo";
+  const planActive = Boolean(planQuery.data?.active);
   const canPlay = gate === "open" && !deviceBlocked;
   const stream = useQuery({
     queryKey: ["bujuu-backend-stream", tmdbId, mediaType, season, episode, server, trial.trial.deviceId],
@@ -57,31 +66,42 @@ function Watch() {
   const episodes = useQuery(seasonQuery(isTv ? tmdbId : null, season, isTv));
   const title = details.data?.title ?? "Untitled";
 
+  // Realtime Presence is ephemeral: no heartbeat/device table is read or written.
+  // Do not block playback until the active-plan lookup is complete.
   useEffect(() => {
-    if (!canPlay || !userId || !accountTrial.isPremium) return;
-    let mounted = true;
-    const heartbeat = async () => {
-      try {
-        // Refresh the persisted device's last_seen timestamp and enforce the
-        // subscription's configured concurrency limit from live device rows.
-        await sendDeviceHeartbeat(userId, accountTrial.deviceId || deviceId);
-        const count = await countRecentlyActiveDevices(userId);
-        if (mounted) {
-          setActiveDevices(count);
-          setDeviceBlocked(count > deviceLimitForPlan(plan));
-        }
-      } catch (error) {
-        console.warn("Device heartbeat could not be recorded", error);
-      }
+    if (gate !== "open" || !userId || !planActive || !planQuery.data) {
+      setDeviceBlocked(false);
+      setActiveDevices(0);
+      return;
+    }
+
+    let disposed = false;
+    const channel = supabase.channel(`presence:${userId}`, {
+      config: { presence: { key: deviceId } },
+    });
+
+    const handlePresenceSync = () => {
+      if (disposed) return;
+      const presence = channel.presenceState();
+      const count = Object.keys(presence).length;
+      setActiveDevices(count);
+      setDeviceBlocked(!playHere && count > deviceLimitForPlan(plan));
     };
-    try {
-      const savedPlan = localStorage.getItem("bujuu_subscription_plan");
-      if (savedPlan === "family" || savedPlan === "solo") setPlan(savedPlan);
-    } catch { /* use Solo default */ }
-    void heartbeat();
-    const id = window.setInterval(() => void heartbeat(), deviceHeartbeatInterval());
-    return () => { mounted = false; window.clearInterval(id); };
-  }, [canPlay, userId, accountTrial.isPremium, accountTrial.deviceId, deviceId, plan]);
+
+    channel.on("presence", { event: "sync" }, handlePresenceSync);
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.track({ deviceId, onlineAt: new Date().toISOString() });
+        handlePresenceSync();
+      }
+    });
+
+    return () => {
+      disposed = true;
+      void channel.untrack();
+      void supabase.removeChannel(channel);
+    };
+  }, [gate, userId, deviceId, plan, planActive, planQuery.data, playHere]);
 
   useEffect(() => {
     if (!canPlay || !details.data) return;
@@ -132,7 +152,7 @@ function Watch() {
       </div>
     </div><Paywall gate={gate} onPaid={refresh} /></>;
   }
-  if (deviceBlocked) return <div className="fixed inset-0 z-50 grid place-items-center bg-black p-6 text-center"><div className="max-w-md space-y-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-7"><h1 className="text-xl font-bold text-white">Device limit reached</h1><p className="text-sm text-zinc-300">Someone else is watching on your account. Switch playback here or upgrade to Family (4 devices)?</p><p className="text-xs text-zinc-500">{activeDevices} active devices · {plan === "solo" ? "Solo limit: 1" : "Family limit: 4"}</p><button className="rounded-lg bg-rose-600 px-4 py-2 font-semibold text-white" onClick={() => void navigate({ to: "/subscribe" })}>Upgrade to Family</button><button className="ml-2 rounded-lg border border-zinc-700 px-4 py-2 text-white" onClick={() => window.location.reload()}>Check again</button></div></div>;
+  if (deviceBlocked) return <div className="fixed inset-0 z-50 grid place-items-center bg-black p-6 text-center"><div className="max-w-md space-y-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-7"><h1 className="text-xl font-bold text-white">Device limit reached</h1><p className="text-sm text-zinc-300">Someone else is watching on your account. Switch playback here or upgrade to Family (4 devices)?</p><p className="text-xs text-zinc-500">{activeDevices} active devices · {plan === "solo" ? "Solo limit: 1" : "Family limit: 4"}</p><button className="rounded-lg bg-rose-600 px-4 py-2 font-semibold text-white" onClick={() => setPlayHere(true)}>Switch playback here</button>{plan === "solo" && <button className="ml-2 rounded-lg border border-zinc-700 px-4 py-2 text-white" onClick={() => void navigate({ to: "/subscribe" })}>Upgrade to Family</button>}</div></div>;
 
   return <main className="fixed inset-0 z-50 overflow-hidden bg-black" onMouseMove={() => setControls(true)} onTouchStart={() => setControls(true)}>
     {src && <iframe key={src} src={src} title="BUJUU player" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowFullScreen onLoad={() => setLoaded(true)} onError={() => setServer((value) => Math.min(value + 1, SERVER_COUNT - 1))} className={`absolute inset-0 h-full w-full border-0 ${loaded ? "opacity-100" : "opacity-0"}`} />}

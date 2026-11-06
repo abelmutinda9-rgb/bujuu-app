@@ -17,6 +17,7 @@ import { useWatchHistory } from "@/hooks/use-library";
 import { buildReferralUrl } from "@/config/referral";
 import { myReferrals } from "@/lib/account.functions";
 import { myWithdrawals, requestReferralWithdrawal } from "@/lib/withdrawal.functions";
+import { fetchActivePlan } from "@/lib/subscription-plan";
 import { normalizeKenyanPhone } from "@/services/payhero";
 
 export const Route = createFileRoute("/profile")({ component: ProfilePage });
@@ -29,7 +30,7 @@ function readProfiles(): LocalProfile[] {
 }
 
 function ProfilePage() {
-  const { profile, isKids, switchProfile, pin, setParentPin } = useProfile();
+  const { isKids, switchProfile, pin, setParentPin } = useProfile();
   const { signedIn, email, state, isPremium, refresh } = useAccount();
   const trial = useDeviceTrial();
   const navigate = useNavigate();
@@ -37,7 +38,9 @@ function ProfilePage() {
   const [activeProfileId, setActiveProfileId] = useState(() => { try { return localStorage.getItem("bujuu_active_profile_id") ?? "owner"; } catch { return "owner"; } });
   const [pinInput, setPinInput] = useState("");
   const [nameInput, setNameInput] = useState("");
-  const family = (() => { try { return localStorage.getItem("bujuu_subscription_plan") === "family"; } catch { return false; } })();
+  const { session } = useSession();
+  const planQuery = useQuery({ queryKey: ["subscription-plan", session?.user.id], enabled: Boolean(session?.user.id), queryFn: () => fetchActivePlan(session!.user.id) });
+  const family = planQuery.data?.plan === "family" && planQuery.data.active;
   const maximum = family ? 4 : 1;
   const switchTo = (target: LocalProfile | { id: string; name: string; isKids: boolean }) => {
     if (target.isKids) {
@@ -55,7 +58,6 @@ function ProfilePage() {
     const next = [...profiles, { id: crypto.randomUUID(), name: nameInput.trim(), avatarColor: colors[profiles.length % colors.length], isKids: false }];
     saveProfiles(next); setNameInput("");
   };
-  const { session } = useSession();
   const history = useWatchHistory();
   return <AppShell><main className="mx-auto max-w-3xl space-y-6 px-4 pb-24 pt-24 text-white lg:px-8">
     <header><p className="text-xs font-bold uppercase tracking-[0.25em] text-rose-500">Account</p><h1 className="mt-2 text-3xl font-bold">Profiles & Wallet</h1></header>
