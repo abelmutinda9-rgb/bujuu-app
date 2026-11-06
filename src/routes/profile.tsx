@@ -1,766 +1,114 @@
-import { useDeviceTrial } from "@/hooks/use-device-trial";
-import { useProfile } from "@/context/profile-context";
-import { KeyRound, Shield } from "lucide-react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { signOutSession } from "@/lib/auth";
-import {
-  CheckCircle2,
-  Copy,
-  Gift,
-  Headphones,
-  Instagram,
-  MessageCircle,
-  Phone,
-  Share2,
-  ShieldAlert,
-  Smartphone,
-  Wallet,
-} from "lucide-react";
-import { toast } from "sonner";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { CheckCircle2, Copy, Film, Gift, Headphones, History, Instagram, MessageCircle, Phone, Shield, ShieldAlert, Smartphone, Trash2, Wallet } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { GoogleButton } from "@/components/GoogleButton";
+import { PinModal } from "@/components/PinModal";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { GoogleButton } from "@/components/GoogleButton";
+import { useProfile } from "@/context/profile-context";
 import { useAccount, useSession } from "@/hooks/use-account";
-import { supabase } from "@/integrations/supabase/client";
-import { normalizeKenyanPhone } from "@/services/payhero";
+import { useDeviceTrial } from "@/hooks/use-device-trial";
+import { useWatchHistory } from "@/hooks/use-library";
 import { buildReferralUrl } from "@/config/referral";
 import { myReferrals } from "@/lib/account.functions";
-import { useWatchHistory } from "@/hooks/use-library";
-import { History, Trash2, Film } from "lucide-react";
 import { myWithdrawals, requestReferralWithdrawal } from "@/lib/withdrawal.functions";
+import { normalizeKenyanPhone } from "@/services/payhero";
 
-export const Route = createFileRoute("/profile")({
-  head: () => ({
-    meta: [
-      { title: "My Profile — bujuu" },
-      { name: "description", content: "Check your bujuu subscription, invite friends, and manage this device." },
-      { property: "og:title", content: "My Profile — bujuu" },
-      {
-        property: "og:description",
-        content: "Check your bujuu subscription, invite friends, and manage this device.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: ProfilePage,
-});
+export const Route = createFileRoute("/profile")({ component: ProfilePage });
+
+type LocalProfile = { id: string; name: string; avatarColor: string; isKids: boolean };
+const PROFILE_KEY = "bujuu_profiles";
+const colors = ["#be123c", "#7c3aed", "#0369a1", "#15803d"];
+function readProfiles(): LocalProfile[] {
+  try { const data = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? "[]"); return Array.isArray(data) ? data : []; } catch { return []; }
+}
 
 function ProfilePage() {
+  const { profile, isKids, switchProfile, pin, setParentPin } = useProfile();
+  const { signedIn, email, state, isPremium, refresh } = useAccount();
   const trial = useDeviceTrial();
-  const { pin, setParentPin } = useProfile();
-  const [newPinInput, setNewPinInput] = useState("");
-
-  const { signedIn, email, state, isPremium: active, refresh } = useAccount();
   const navigate = useNavigate();
-
-  const handleSignOut = async () => {
-    try {
-      await signOutSession();
-      refresh();
-      toast.success("Signed out");
-    } catch {
-      toast.error("Could not sign out");
+  const [profiles, setProfiles] = useState<LocalProfile[]>(readProfiles);
+  const [activeProfileId, setActiveProfileId] = useState(() => { try { return localStorage.getItem("bujuu_active_profile_id") ?? "owner"; } catch { return "owner"; } });
+  const [pinInput, setPinInput] = useState("");
+  const [nameInput, setNameInput] = useState("");
+  const family = (() => { try { return localStorage.getItem("bujuu_subscription_plan") === "family"; } catch { return false; } })();
+  const maximum = family ? 4 : 1;
+  const switchTo = (target: LocalProfile | { id: string; name: string; isKids: boolean }) => {
+    if (target.isKids) {
+      setActiveProfileId(target.id); try { localStorage.setItem("bujuu_active_profile_id", target.id); } catch {}
+      switchProfile("kids");
+      return;
     }
+    if (isKids && pin) { switchProfile("adult"); return; }
+    setActiveProfileId(target.id); try { localStorage.setItem("bujuu_active_profile_id", target.id); } catch {}
+    switchProfile("adult");
   };
-
-  const initial = (email ?? "U").charAt(0).toUpperCase();
-
-  return (
-    <AppShell>
-      <div className="mx-auto max-w-2xl px-4 pb-24 pt-24 lg:px-8">
-        <h1 className="text-2xl font-bold">My Profile</h1>
-
-        {/* Device Status & Access Card */}
-        <div className="mt-6 space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900/90 p-5 shadow-lg backdrop-blur-md">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Smartphone className="h-5 w-5 text-rose-500" />
-              <h3 className="font-bold text-white">Device Access & Subscription</h3>
-            </div>
-            <span className={trial.status === 'active' ? 'rounded-full px-2.5 py-0.5 text-xs font-bold uppercase bg-emerald-500/20 text-emerald-400' : trial.status === 'trial' ? 'rounded-full px-2.5 py-0.5 text-xs font-bold uppercase bg-rose-500/20 text-rose-400' : 'rounded-full px-2.5 py-0.5 text-xs font-bold uppercase bg-zinc-800 text-zinc-400'}>
-              {trial.status === 'active' ? 'Active Subscriber' : trial.status === 'trial' ? '3-Day Free Trial' : 'Expired'}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="rounded-xl bg-zinc-950 p-3 border border-zinc-800/80">
-              <span className="text-zinc-500 block">Access Remaining</span>
-              <span className="font-bold text-white text-sm">{trial.daysRemaining} {trial.daysRemaining === 1 ? 'day' : 'days'}</span>
-            </div>
-            <div className="rounded-xl bg-zinc-950 p-3 border border-zinc-800/80">
-              <span className="text-zinc-500 block">Device ID</span>
-              <span className="font-mono text-zinc-300 truncate block">{trial.deviceId.slice(0, 14)}…</span>
-            </div>
-          </div>
-
-          {trial.recoveryToken && (
-            <div className="rounded-xl bg-rose-950/20 border border-rose-500/30 p-3 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider block">Device Recovery Code</span>
-                <span className="font-mono text-base font-bold text-white tracking-widest">{trial.recoveryToken}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(trial.recoveryToken || "");
-                  toast.success("Recovery code copied!");
-                }}
-                className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700"
-              >
-                Copy
-              </button>
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-1">
-            <Button
-              className="flex-1 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold h-10 rounded-xl"
-              onClick={() => void navigate({ to: "/subscribe" })}
-            >
-              {trial.status === 'active' ? 'Extend Subscription' : 'Unlock for KSh 150 (30 Days)'}
-            </Button>
-            <Button
-              variant="outline"
-              className="border-zinc-800 bg-zinc-950 text-xs font-semibold h-10 rounded-xl text-zinc-300 hover:text-white"
-              onClick={() => void navigate({ to: "/subscribe", search: { redirect: "/profile" } })}
-            >
-              Transfer Code
-            </Button>
-          </div>
-
-          {/* Parental PIN Setup */}
-          <div className="pt-3 border-t border-zinc-800/80 space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
-              <Shield className="h-4 w-4 text-amber-400" /> Parental Control PIN (Adult Profile Protection)
-            </div>
-            <div className="flex gap-2">
-              <Input
-                type="password"
-                maxLength={4}
-                placeholder={pin ? "•••• (PIN is set)" : "Enter 4-digit PIN"}
-                value={newPinInput}
-                onChange={(e) => setNewPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                className="h-9 bg-zinc-950 border-zinc-800 text-xs text-white rounded-lg"
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  if (newPinInput.length === 4) {
-                    setParentPin(newPinInput);
-                    setNewPinInput("");
-                    toast.success("Parental PIN set successfully!");
-                  } else if (newPinInput === "" && pin) {
-                    setParentPin("");
-                    toast.info("Parental PIN removed.");
-                  } else {
-                    toast.error("PIN must be exactly 4 digits.");
-                  }
-                }}
-                className="text-xs h-9 rounded-lg"
-              >
-                {newPinInput ? "Save PIN" : pin ? "Remove PIN" : "Set PIN"}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-
-        {!signedIn ? (
-          <div className="mt-6 space-y-4 rounded-lg border border-border p-6">
-            <p className="text-sm text-muted-foreground">
-              Sign in with your Google account or email to keep your subscription and see your referral earnings.
-            </p>
-            <GoogleButton />
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => void navigate({ to: "/auth", search: { redirect: "/profile" } })}
-            >
-              Sign in with Email Code
-            </Button>
-          </div>
-        ) : (
-          <div className="mt-6 space-y-6">
-            <div className="flex items-center gap-4 rounded-lg border border-border p-5">
-              <Avatar className="h-14 w-14">
-                <AvatarFallback className="bg-brand/20 text-brand text-lg font-bold">
-                  {initial}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold truncate">{email}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Signed in
-                </p>
-              </div>
-              <Button variant="outline" size="sm" onClick={handleSignOut}>
-                Sign out
-              </Button>
-            </div>
-
-            {/* Watch History */}
-            <WatchHistorySection />
-
-            <div className="rounded-lg border border-border p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Subscription</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    {active ? (
-                      <>
-                        <CheckCircle2 className="h-4 w-4 text-brand" />
-                        <span className="font-semibold text-brand">Active Premium</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-semibold text-muted-foreground">
-                          {state?.status === "EXPIRED" ? "Expired" : "No active subscription"}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {!active && (
-                  <Button size="sm" onClick={() => void navigate({ to: "/subscribe" })}>
-                    Subscribe (KSh 150)
-                  </Button>
-                )}
-              </div>
-
-              {state?.expiresAt && (
-                <p className="text-xs text-muted-foreground mt-3">
-                  {active ? "Renews/expires on: " : "Expired on: "}
-                  {new Date(state.expiresAt).toLocaleDateString()}
-                </p>
-              )}
-
-              {state?.phone && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  M-Pesa number: {state.phone}
-                </p>
-              )}
-            </div>
-
-            <InviteFriends />
-
-            <ContactSupport />
-
-            <AppUpdatesSection />
-          </div>
-        )}
-      </div>
-    </AppShell>
-  );
-}
-
-function ContactSupport() {
-  const items = [
-    { label: "WhatsApp", sub: "0713767370", href: "https://wa.me/254713767370", Icon: MessageCircle, external: true },
-    { label: "Instagram", sub: "@bu.j.uu", href: "https://instagram.com/bu.j.uu", Icon: Instagram, external: true },
-    { label: "Phone", sub: "0713767370", href: "tel:0713767370", Icon: Phone, external: true },
-  ];
-
-  return (
-    <div className="mt-6 max-w-md rounded-lg border border-border p-5">
-      <div className="flex items-center gap-2">
-        <Headphones className="h-5 w-5 text-brand" />
-        <span className="font-semibold">Contact & Support</span>
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Need help with your subscription or playback? Reach out anytime.
-      </p>
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        {items.map(({ label, sub, href, Icon, external }) => (
-          <a
-            key={label}
-            href={href}
-            {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-            className="flex flex-col items-center gap-1.5 rounded-md bg-secondary px-2 py-3 text-center transition-colors hover:bg-brand/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-          >
-            <Icon className="h-5 w-5 text-brand" />
-            <span className="text-sm font-semibold">{label}</span>
-            <span className="text-[11px] text-muted-foreground">{sub}</span>
-          </a>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-interface ReferralStats {
-  code: string;
-  invited: number;
-  paying: number;
-  earned: number;
-  withdrawn: number;
-  available: number;
-  reward: number;
-  history: Array<{
-    id: string;
-    amount: number;
-    phone: string;
-    status: string;
-    createdAt?: string;
-  }>;
-}
-
-function InviteFriends() {
+  const saveProfiles = (next: LocalProfile[]) => { setProfiles(next); try { localStorage.setItem(PROFILE_KEY, JSON.stringify(next)); } catch {} };
+  const addProfile = () => {
+    if (!nameInput.trim() || profiles.length + 1 >= maximum) return;
+    const next = [...profiles, { id: crypto.randomUUID(), name: nameInput.trim(), avatarColor: colors[profiles.length % colors.length], isKids: false }];
+    saveProfiles(next); setNameInput("");
+  };
   const { session } = useSession();
-  const userId = session?.user?.id;
-
-  const q = useQuery<ReferralStats>({
-    queryKey: ["referrals-v2", userId],
-    enabled: Boolean(userId),
-    queryFn: async () => {
-      if (!userId) {
-        return {
-          code: "BUJUU",
-          invited: 0,
-          paying: 0,
-          earned: 0,
-          withdrawn: 0,
-          available: 0,
-          reward: 30,
-          history: [],
-        };
-      }
-
-      let code = "";
-      let invited = 0;
-      let paying = 0;
-      let earned = 0;
-      let available = 0;
-      let withdrawn = 0;
-      let history: ReferralStats["history"] = [];
-
-      try {
-        // 1. Authoritative server function
-        const summary = await myReferrals();
-        code = summary.code;
-        invited = summary.invited;
-        paying = summary.paying;
-        earned = summary.earned;
-
-        try {
-          const wSummary = await myWithdrawals();
-          available = wSummary.available;
-          withdrawn = Math.max(0, earned - available);
-          history = wSummary.history || [];
-        } catch {
-          available = earned;
-        }
-      } catch (err) {
-        console.warn("myReferrals server function failed; using direct Supabase queries:", err);
-
-        // 2. Direct Supabase query fallback (NO localStorage)
-        try {
-          const { data: codeRow } = await supabase
-            .from("referral_codes")
-            .select("code")
-            .eq("user_id", userId)
-            .maybeSingle();
-          if (codeRow?.code) code = codeRow.code;
-        } catch {}
-
-        if (!code) {
-          code = userId.replace(/-/g, "").slice(0, 8).toUpperCase();
-        }
-
-        try {
-          const { data: refs } = await supabase
-            .from("referrals")
-            .select("status")
-            .eq("referrer_id", userId);
-          if (refs) {
-            invited = refs.length;
-            paying = refs.filter((r) => r.status === "qualified").length;
-            earned = paying * 30;
-          }
-        } catch {}
-
-        try {
-          const { data: wList } = await supabase
-            .from("referral_withdrawals")
-            .select("id, amount, phone, status, created_at")
-            .eq("user_id", userId)
-            .order("created_at", { ascending: false });
-
-          if (wList) {
-            history = wList.map((w) => ({
-              id: w.id,
-              amount: Number(w.amount) || 0,
-              phone: w.phone,
-              status: w.status,
-              createdAt: w.created_at,
-            }));
-            withdrawn = history
-              .filter((w) => w.status === "paid" || w.status === "pending" || w.status === "processing")
-              .reduce((sum, w) => sum + w.amount, 0);
-          }
-        } catch {}
-
-        available = Math.max(0, earned - withdrawn);
-      }
-
-      return {
-        code: code || "BUJUU",
-        invited,
-        paying,
-        earned,
-        withdrawn,
-        available,
-        reward: 30,
-        history,
-      };
-    },
-  });
-
-  const link = q.data?.code ? buildReferralUrl(q.data.code) : "";
-
-  const copyLink = async () => {
-    if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
-      toast.success("Invite link copied to clipboard!");
-    } catch {
-      toast.info(link);
-    }
-  };
-
-  const shareLink = async () => {
-    if (!link) return;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: "BUJUU — Unlimited Movies & Shows",
-          text: "Watch unlimited movies and series on BUJUU! Use my referral link to get started:",
-          url: link,
-        });
-      } catch {}
-    } else {
-      await copyLink();
-    }
-  };
-
-  return (
-    <div className="mt-6 max-w-md rounded-lg border border-border p-5">
-      <div className="flex items-center gap-2">
-        <Gift className="h-5 w-5 text-brand" />
-        <span className="font-semibold">Invite friends & earn</span>
+  const history = useWatchHistory();
+  return <AppShell><main className="mx-auto max-w-3xl space-y-6 px-4 pb-24 pt-24 text-white lg:px-8">
+    <header><p className="text-xs font-bold uppercase tracking-[0.25em] text-rose-500">Account</p><h1 className="mt-2 text-3xl font-bold">Profiles & Wallet</h1></header>
+    <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
+      <div className="flex items-center justify-between"><div><h2 className="font-bold">Who's watching?</h2><p className="mt-1 text-xs text-zinc-400">{family ? "Family plan · up to 4 profiles" : "Solo plan · 1 profile"}</p></div><span className="rounded-full bg-rose-500/10 px-3 py-1 text-xs font-bold text-rose-400">{isKids ? "Kids" : "Adult"} active</span></div>
+      <div className="mt-4 flex flex-wrap gap-4">
+        <button onClick={() => switchTo({ id: "owner", name: email?.split("@")[0] ?? "You", isKids: false })} className="flex w-24 flex-col items-center gap-2"><span className={`grid h-16 w-16 place-items-center rounded-xl text-xl font-black ${activeProfileId === "owner" ? "ring-2 ring-rose-500" : ""}`} style={{ backgroundColor: colors[0] }}>{(email ?? "U").charAt(0).toUpperCase()}</span><span className="truncate text-xs">{email?.split("@")[0] ?? "You"}</span></button>
+        {profiles.map((item) => <button key={item.id} onClick={() => switchTo(item)} className="flex w-24 flex-col items-center gap-2"><span className={`grid h-16 w-16 place-items-center rounded-xl text-xl font-black ${activeProfileId === item.id ? "ring-2 ring-rose-500" : ""}`} style={{ backgroundColor: item.avatarColor }}>{item.name.charAt(0).toUpperCase()}</span><span className="truncate text-xs">{item.name}{item.isKids ? " · Kids" : ""}</span></button>)}
       </div>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Earn <strong className="text-foreground">KSh {q.data?.reward ?? 30}</strong> in cash for every friend who subscribes through your link.
-      </p>
+      {family && profiles.length + 1 < maximum && <div className="mt-4 flex gap-2"><Input value={nameInput} onChange={(event) => setNameInput(event.target.value)} placeholder="New profile name" className="border-zinc-800 bg-black"/><Button onClick={addProfile} className="bg-rose-600">Add profile</Button></div>}
+      <div className="mt-4 flex flex-wrap gap-2"><Button variant="outline" className="border-zinc-700" onClick={() => switchTo({ id: "kids", name: "Kids", isKids: true })}>Switch to Kids Mode</Button><Button variant="outline" className="border-zinc-700" onClick={() => { const name = window.prompt("Name this profile"); if (!name?.trim()) return; const next = profiles.map((item) => item.id === activeProfileId ? { ...item, name: name.trim() } : item); saveProfiles(next); }}>Rename selected</Button></div>
+      <div className="mt-5 border-t border-zinc-800 pt-4"><div className="flex items-center gap-2 text-sm font-semibold"><Shield className="h-4 w-4 text-amber-400"/>Kids Mode PIN</div><div className="mt-2 flex gap-2"><Input type="password" inputMode="numeric" maxLength={4} value={pinInput} onChange={(event) => setPinInput(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder={pin ? "PIN configured" : "Set 4-digit PIN"} className="border-zinc-800 bg-black"/><Button onClick={() => { if (pinInput.length !== 4) return toast.error("PIN must be exactly 4 digits"); setParentPin(pinInput); setPinInput(""); toast.success("Kids PIN saved"); }} className="bg-rose-600">Save PIN</Button></div><p className="mt-2 text-xs text-zinc-500">Leaving Kids Mode prompts for this PIN.</p></div>
+    </section>
+    <PinModal />
 
-      <div className="mt-3 flex items-center gap-2 rounded-md bg-secondary/80 p-2 text-xs">
-        <span className="flex-1 truncate font-mono">{link || "Loading link…"}</span>
-        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={copyLink} title="Copy link">
-          <Copy className="h-4 w-4" />
-        </Button>
-      </div>
+    <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5"><div className="flex items-center gap-2"><Gift className="h-5 w-5 text-rose-500"/><h2 className="font-bold">Referral Wallet</h2></div><ReferralWallet userId={session?.user.id} active={isPremium} /></section>
 
-      <div className="mt-3 flex gap-2">
-        <Button className="flex-1" variant="secondary" disabled={!link} onClick={shareLink}>
-          <Share2 className="mr-2 h-4 w-4" /> Share invite link
-        </Button>
-      </div>
+    <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5"><div className="flex items-center gap-2"><Smartphone className="h-5 w-5 text-rose-500"/><h2 className="font-bold">Subscription</h2></div><p className="mt-3 text-sm text-zinc-300">{trial.status === "active" ? "Active subscription" : trial.status === "trial" ? `${trial.daysRemaining} trial days remaining` : "Trial expired"}</p><p className="mt-1 text-xs text-zinc-500">{state?.expiresAt ? `Expires ${new Date(state.expiresAt).toLocaleDateString()}` : "Solo: KSh 150/month · Family: KSh 450/month"}</p><Button className="mt-4 bg-rose-600" onClick={() => void navigate({ to: "/subscribe" })}>Manage subscription</Button></section>
 
-      <div className="mt-4 grid grid-cols-3 gap-2 rounded-lg bg-card/60 p-3 text-center border border-border/50">
-        <div>
-          <p className="text-lg font-bold">{q.data?.invited ?? 0}</p>
-          <p className="text-[11px] text-muted-foreground">Invited</p>
-        </div>
-        <div>
-          <p className="text-lg font-bold text-brand">{q.data?.paying ?? 0}</p>
-          <p className="text-[11px] text-muted-foreground">Subscribed</p>
-        </div>
-        <div>
-          <p className="text-lg font-bold text-green-500">KSh {q.data?.earned ?? 0}</p>
-          <p className="text-[11px] text-muted-foreground">Earned</p>
-        </div>
-      </div>
+    {!signedIn ? <section className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-5"><p className="text-sm text-zinc-300">Sign in to manage referrals and subscription.</p><GoogleButton/><Button variant="outline" className="w-full border-zinc-700" onClick={() => void navigate({ to: "/auth", search: { redirect: "/profile" } })}>Sign in with email</Button></section> : <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5"><div className="flex items-center gap-3"><Avatar><AvatarFallback className="bg-rose-950 text-rose-300">{(email ?? "U").charAt(0).toUpperCase()}</AvatarFallback></Avatar><div><p className="font-semibold">{email}</p><p className="text-xs text-zinc-500">Signed in</p></div><Button variant="outline" className="ml-auto border-zinc-700" onClick={async () => { await (await import("@/lib/auth")).signOutSession(); refresh(); }}>Sign out</Button></div></section>}
 
-      {userId && q.data && (
-        <WithdrawSection stats={q.data} userId={userId} />
-      )}
-    </div>
-  );
+    {history.data?.length ? <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5"><div className="flex items-center gap-2"><History className="h-4 w-4 text-rose-500"/><h2 className="font-bold">Watch History</h2></div>{history.data.slice(0, 8).map((item) => <p key={item.id} className="mt-2 flex items-center gap-2 text-sm text-zinc-300"><Film className="h-4 w-4 text-zinc-500"/>{item.title}</p>)}<Button variant="ghost" className="mt-3 text-zinc-400" onClick={() => history.clearHistory.mutate()}><Trash2 className="mr-2 h-4 w-4"/>Clear history</Button></section> : null}
+    <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5"><div className="flex items-center gap-2"><Headphones className="h-5 w-5 text-rose-500"/><h2 className="font-bold">Support</h2></div><div className="mt-3 flex gap-4 text-sm text-zinc-400"><a href="https://wa.me/254713767370" className="flex items-center gap-1"><MessageCircle className="h-4 w-4"/>WhatsApp</a><a href="https://instagram.com/bu.j.uu" className="flex items-center gap-1"><Instagram className="h-4 w-4"/>Instagram</a><a href="tel:0713767370" className="flex items-center gap-1"><Phone className="h-4 w-4"/>Phone</a></div></section>
+  </main></AppShell>;
 }
 
-function WithdrawSection({ stats, userId }: { stats: ReferralStats; userId: string }) {
+function ReferralWallet({ userId, active }: { userId?: string; active: boolean }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
-  const eligible = stats.available >= 30;
-
-  const handleWithdraw = async () => {
-    if (busy) return;
+  const stats = useQuery({ queryKey: ["referral-wallet", userId], enabled: Boolean(userId), queryFn: async () => {
+    const [referrals, withdrawals] = await Promise.all([myReferrals(), myWithdrawals()]);
+    return { ...referrals, available: withdrawals.available, history: withdrawals.history };
+  }});
+  const link = stats.data?.code ? buildReferralUrl(stats.data.code) : "";
+  const copy = async () => { if (!link) return; await navigator.clipboard.writeText(link); toast.success("Invite link copied"); };
+  const withdraw = async () => {
+    if (!phone.trim() || !userId || !stats.data || busy) return;
     setBusy(true);
-
     try {
-      const cleanPhone = normalizeKenyanPhone(phone);
-
-      // Attempt authoritative server withdrawal first
-      try {
-        await requestReferralWithdrawal({
-          data: {
-            phone: cleanPhone,
-            requestKey: crypto.randomUUID(),
-          },
-        });
-      } catch (serverErr: any) {
-        console.warn("requestReferralWithdrawal server call failed; trying direct Supabase RPC:", serverErr);
-        // Fallback to direct Supabase RPC if offline/client-only
-        const { error: rpcErr } = await supabase.rpc("reserve_referral_withdrawal", {
-          _user_id: userId,
-          _phone: cleanPhone,
-          _request_key: `${userId}:${Date.now()}`,
-          _min: 30,
-        });
-        if (rpcErr) throw rpcErr;
-      }
-
-      toast.success("Withdrawal requested successfully for KSh " + stats.available);
-
-      // Also provide WhatsApp link for direct disbursement assistance
-      const msg = encodeURIComponent(
-        `Hello BUJUU Support! I have requested a referral withdrawal of KSh ${stats.available} for my account (${userId.slice(0, 8)}) to M-Pesa number ${cleanPhone}.`
-      );
-      window.open(`https://wa.me/254713767370?text=${msg}`, "_blank");
-
-      setOpen(false);
-      await qc.invalidateQueries({ queryKey: ["referrals-v2"] });
-    } catch (e: any) {
-      toast.error(e?.message || "Could not process withdrawal request.");
-    } finally {
-      setBusy(false);
-    }
+      const cleaned = normalizeKenyanPhone(phone);
+      await requestReferralWithdrawal({ data: { phone: cleaned, requestKey: crypto.randomUUID() } });
+      setPhone("");
+      toast.success("Withdrawal request submitted");
+      await qc.invalidateQueries({ queryKey: ["referral-wallet", userId] });
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to request withdrawal"); }
+    finally { setBusy(false); }
   };
-
-  const history = stats.history || [];
-
-  return (
-    <div className="mt-5 border-t border-border pt-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground">Available to withdraw</p>
-          <p className="text-xl font-bold text-green-500">KSh {stats.available}</p>
-        </div>
-        <Button
-          size="sm"
-          disabled={!eligible}
-          onClick={() => setOpen(true)}
-          className="bg-brand hover:bg-brand/90"
-        >
-          <Wallet className="mr-1.5 h-4 w-4" /> Withdraw
-        </Button>
-      </div>
-
-      {stats.available < 30 && (
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          Minimum withdrawal is KSh 30 (1 paying friend).
-        </p>
-      )}
-
-      {history.length > 0 && (
-        <div className="mt-4">
-          <p className="text-xs font-semibold text-muted-foreground">Recent withdrawal requests</p>
-          <div className="mt-2 space-y-1.5">
-            {history.slice(0, 3).map((h) => (
-              <div key={h.id} className="flex justify-between items-center text-xs rounded bg-secondary/50 px-2 py-1.5">
-                <span>KSh {h.amount} · {h.phone}</span>
-                <span className="font-medium text-amber-500 capitalize">{h.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Withdraw Referral Earnings</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <div className="rounded-lg bg-secondary/50 p-3 text-sm">
-              <p className="text-muted-foreground">Available balance:</p>
-              <p className="text-2xl font-bold text-green-500">KSh {stats.available}</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="phone" className="text-sm font-medium">
-                M-Pesa Phone Number
-              </label>
-              <Input
-                id="phone"
-                placeholder="0712 345 678 or 254..."
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Earnings will be sent directly to this M-Pesa number.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleWithdraw}
-              disabled={busy || !phone.trim() || stats.available < 30}
-              className="bg-brand hover:bg-brand/90"
-            >
-              {busy ? "Submitting..." : `Withdraw KSh ${stats.available}`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function AppUpdatesSection() {
-  const [checking, setChecking] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<{
-    versionName: string;
-    versionCode: number;
-    apkUrl: string;
-    releaseNotes: string;
-    isNewer: boolean;
-  } | null>(null);
-
-  const checkUpdates = async () => {
-    setChecking(true);
-    try {
-      const res = await fetch("/version.json?t=" + Date.now());
-      if (!res.ok) throw new Error("Could not fetch version info");
-      const data = await res.json();
-      const currentCode = 4; // v1.3
-      const isNewer = Number(data.versionCode) > currentCode;
-      setUpdateInfo({
-        versionName: data.versionName || "1.3",
-        versionCode: Number(data.versionCode) || 4,
-        apkUrl: data.apkUrl || "https://github.com/abelmutinda9-rgb/bujuu-app/releases/download/latest/bujuu-app.apk",
-        releaseNotes: data.releaseNotes || "",
-        isNewer,
-      });
-      if (!isNewer) {
-        toast.success("BUJUU is up to date (v1.3)");
-      } else {
-        toast.info("New version available: v" + data.versionName);
-      }
-    } catch {
-      toast.error("Could not check for updates. Please try again.");
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  return (
-    <div className="mt-6 max-w-md rounded-lg border border-border p-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold">BUJUU App Version</p>
-          <p className="text-xs text-muted-foreground">Installed: v1.3 (Build 4)</p>
-        </div>
-        <Button size="sm" variant="outline" disabled={checking} onClick={checkUpdates}>
-          {checking ? "Checking..." : "Check for updates"}
-        </Button>
-      </div>
-
-      {updateInfo && updateInfo.isNewer && (
-        <div className="mt-4 rounded-md bg-secondary/80 p-3 text-xs">
-          <p className="font-semibold text-foreground">Update Available: v{updateInfo.versionName}</p>
-          <p className="text-muted-foreground mt-1">{updateInfo.releaseNotes}</p>
-          <a
-            href={updateInfo.apkUrl}
-            download="bujuu-app.apk"
-            className="mt-3 inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            Download & Update APK
-          </a>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WatchHistorySection() {
-  const { data: history, isLoading, clearHistory } = useWatchHistory();
-
-  return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-5 shadow-lg backdrop-blur-md space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <History className="h-5 w-5 text-rose-500" />
-          <h2 className="text-base font-bold text-white">Watch History</h2>
-        </div>
-        {history && history.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => clearHistory.mutate()}
-            disabled={clearHistory.isPending}
-            className="text-xs text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 h-8 gap-1.5"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Clear
-          </Button>
-        )}
-      </div>
-
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-12 rounded-lg bg-zinc-800/40 animate-pulse" />
-          ))}
-        </div>
-      ) : !history || history.length === 0 ? (
-        <p className="text-xs text-zinc-400">No watch history yet. Titles you stream will appear here.</p>
-      ) : (
-        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-          {history.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center justify-between rounded-lg border border-zinc-800/60 bg-zinc-950/60 p-2.5 transition-colors hover:border-zinc-700"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded bg-zinc-800 text-zinc-400">
-                  <Film className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold text-white">
-                    {item.title}
-                    {item.season && item.episode ? ` (S${item.season} E${item.episode})` : ""}
-                  </p>
-                  <p className="text-[10px] text-zinc-500">
-                    {new Date(item.watched_at).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  if (!userId) return <p className="mt-3 text-sm text-zinc-400">Sign in to view your invite code and wallet.</p>;
+  return <div className="mt-4 space-y-4">
+    <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-black p-3"><div className="min-w-0 flex-1"><p className="text-[10px] uppercase tracking-wider text-zinc-500">Invite link</p><p className="truncate font-mono text-sm text-white">{link || (stats.isLoading ? "Loading…" : "Unavailable")}</p></div><Button size="icon" variant="outline" aria-label="Copy invite link" disabled={!link} onClick={() => void copy()} className="border-zinc-700"><Copy className="h-4 w-4"/></Button></div>
+    <div className="grid grid-cols-3 gap-2 text-center">{[["Friends Invited", stats.data?.invited ?? 0], ["Total Commission Earned", `KSh ${stats.data?.earned ?? 0}`], ["Wallet Balance", `KSh ${stats.data?.available ?? 0}`]].map(([label, value]) => <div key={String(label)} className="rounded-xl bg-black p-3"><p className="text-sm font-bold text-white">{value}</p><p className="mt-1 text-[10px] text-zinc-500">{label}</p></div>)}</div>
+    <p className="text-xs text-zinc-400">KSh 20 commission per paying invitee. Referrers must have an active BUJUU subscription to withdraw.</p>
+    <div className="space-y-2 border-t border-zinc-800 pt-4"><label htmlFor="mpesa-phone" className="text-sm font-semibold">Withdraw to M-Pesa</label><Input id="mpesa-phone" autoComplete="off" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0712 345 678" className="border-zinc-800 bg-black"/><p className="text-xs text-zinc-500">Phone number is used to request the payout and is not retained in this form.</p><Button onClick={() => void withdraw()} disabled={busy || !active || (stats.data?.available ?? 0) < 100 || !phone.trim()} className="w-full bg-rose-600 hover:bg-rose-500"><Wallet className="mr-2 h-4 w-4"/>{busy ? "Submitting…" : `Withdraw KSh ${stats.data?.available ?? 0}`}</Button>{(stats.data?.available ?? 0) < 100 && <p className="text-xs text-zinc-500">Minimum withdrawal is KSh 100</p>}{!active && <p className="text-xs text-amber-400">An active subscription is required to withdraw.</p>}</div>
+  </div>;
 }
