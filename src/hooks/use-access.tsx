@@ -1,28 +1,23 @@
-import { useDeviceTrial } from "./use-device-trial";
-
 export function useAccess() {
-  const trial = useDeviceTrial();
-
   return {
-    ready: !trial.isLoading,
-    loading: trial.isLoading,
-    active: trial.canStream,
-    premium: trial.status === "active",
-    canStream: trial.canStream,
-    status: trial.status,
-    daysRemaining: trial.daysRemaining,
-    recoveryToken: trial.recoveryToken,
-    phone: trial.phone,
-    lockedOut: trial.status === "blocked",
-    creds: { deviceId: trial.deviceId, deviceSecret: "bujuu_device" },
-    invalidate: trial.refresh,
+    ready: true,
+    loading: false,
+    active: true,
+    premium: true,
+    canStream: true,
+    status: "active" as const,
+    daysRemaining: 9999,
+    recoveryToken: undefined,
+    phone: undefined,
+    lockedOut: false,
+    creds: { deviceId: "bujuu_guest", deviceSecret: "bujuu_device" },
+    invalidate: () => {},
   };
 }
 
 export function useDevice() {
-  const trial = useDeviceTrial();
   return {
-    creds: { deviceId: trial.deviceId, deviceSecret: "bujuu_device" },
-    ready: !trial.isLoading,
+    creds: { deviceId: "bujuu_guest", deviceSecret: "bujuu_device" },
+    ready: true,
   };
 }

@@ -1,86 +1,89 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-
-import { useSession } from "@/hooks/use-account";
-import { supabase } from "@/integrations/supabase/client";
+import { readContinueWatching } from "@/lib/history";
 import type { MediaItem } from "@/services/tmdb";
 
+export interface WatchlistItem {
+  tmdb_id: number;
+  media_type: "movie" | "tv";
+  title: string;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  created_at: string;
+}
+
+const WATCHLIST_STORAGE_KEY = "bujuu_watchlist";
+
+function readLocalWatchlist(): WatchlistItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalWatchlist(list: WatchlistItem[]): void {
+  try {
+    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(list));
+  } catch {}
+}
+
 export function useMyList() {
-  const { session } = useSession();
-  const userId = session?.user.id;
   return useQuery({
-    queryKey: ["library", "mylist", userId],
-    queryFn: async () => {
-      if (!userId) return [];
-      const { data, error } = await supabase
-        .from("watchlist")
-        .select("tmdb_id, media_type, title, poster_path, backdrop_path, created_at")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(200);
-      if (error) {
-        console.warn("Could not load My List:", error);
-        return [];
-      }
-      return data ?? [];
+    queryKey: ["library", "mylist"],
+    queryFn: async (): Promise<WatchlistItem[]> => {
+      return readLocalWatchlist();
     },
-    enabled: Boolean(session && userId),
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 5,
   });
 }
 
 export function useMyListToggle(item: MediaItem | undefined) {
-  const { session } = useSession();
   const list = useMyList();
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const inList = Boolean(
-    item && list.data?.some((r) => r.tmdb_id === item.id && r.media_type === item.mediaType),
+    item && list.data?.some((r) => r.tmdb_id === item.id && r.media_type === item.mediaType)
   );
+
   const mutation = useMutation({
     mutationFn: async () => {
-      const userId = session?.user.id;
-      if (!userId || !item) return { inList: false };
-      if (!inList) {
-        const { error } = await supabase.from("watchlist").upsert(
-          {
-            user_id: userId,
-            tmdb_id: item.id,
-            media_type: item.mediaType,
-            title: item.title,
-            poster_path: item.posterPath,
-            backdrop_path: item.backdropPath,
-          },
-          { onConflict: "user_id,tmdb_id,media_type", ignoreDuplicates: true },
-        );
-        if (error) throw error;
+      if (!item) return { inList: false };
+      const current = readLocalWatchlist();
+      const exists = current.some((r) => r.tmdb_id === item.id && r.media_type === item.mediaType);
+
+      if (!exists) {
+        const newItem: WatchlistItem = {
+          tmdb_id: item.id,
+          media_type: item.mediaType,
+          title: item.title,
+          poster_path: item.posterPath,
+          backdrop_path: item.backdropPath,
+          created_at: new Date().toISOString(),
+        };
+        writeLocalWatchlist([newItem, ...current]);
         return { inList: true };
       } else {
-        const { error } = await supabase
-          .from("watchlist")
-          .delete()
-          .eq("user_id", userId)
-          .eq("tmdb_id", item.id)
-          .eq("media_type", item.mediaType);
-        if (error) throw error;
+        const filtered = current.filter(
+          (r) => !(r.tmdb_id === item.id && r.media_type === item.mediaType)
+        );
+        writeLocalWatchlist(filtered);
         return { inList: false };
       }
     },
     onSuccess: (r) => {
-      toast(r.inList ? "Added to My List" : "Removed from My List");
+      toast.success(r.inList ? "Added to My List" : "Removed from My List");
       void qc.invalidateQueries({ queryKey: ["library", "mylist"] });
     },
     onError: () => toast.error("Could not update My List."),
   });
+
   const onToggle = () => {
     if (!item) return;
-    if (!session) {
-      void navigate({ to: "/auth", search: { redirect: window.location.pathname } });
-      return;
-    }
     mutation.mutate();
   };
+
   return { inList, onToggle, pending: mutation.isPending };
 }
 
@@ -98,28 +101,24 @@ export interface ContinueWatchingItem {
 }
 
 export function useContinueWatching() {
-  const { session } = useSession();
-  const userId = session?.user.id;
   return useQuery({
-    queryKey: ["library", "continue-watching", userId],
+    queryKey: ["library", "continue-watching"],
     queryFn: async (): Promise<ContinueWatchingItem[]> => {
-      if (!userId) return [];
-      const { data, error } = await supabase
-        .from("playback_progress")
-        .select(
-          "tmdb_id, media_type, title, poster_path, backdrop_path, season, episode, watched_seconds, duration_seconds, updated_at"
-        )
-        .eq("user_id", userId)
-        .order("updated_at", { ascending: false })
-        .limit(20);
-      if (error) {
-        console.warn("Could not load Continue Watching:", error);
-        return [];
-      }
-      return (data as ContinueWatchingItem[]) ?? [];
+      const local = readContinueWatching();
+      return local.map((item) => ({
+        tmdb_id: item.mediaId,
+        media_type: item.type,
+        title: item.title,
+        poster_path: item.posterPath,
+        backdrop_path: null,
+        season: item.season ?? 1,
+        episode: item.episode ?? 1,
+        watched_seconds: 0,
+        duration_seconds: null,
+        updated_at: new Date(item.lastWatchedAt).toISOString(),
+      }));
     },
-    enabled: Boolean(session && userId),
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 5,
   });
 }
 
@@ -135,39 +134,36 @@ export interface WatchHistoryItem {
 }
 
 export function useWatchHistory() {
-  const { session } = useSession();
-  const userId = session?.user.id;
   const qc = useQueryClient();
 
   const query = useQuery({
-    queryKey: ["library", "watch-history", userId],
+    queryKey: ["library", "watch-history"],
     queryFn: async (): Promise<WatchHistoryItem[]> => {
-      if (!userId) return [];
-      const { data, error } = await supabase
-        .from("watch_history")
-        .select("id, tmdb_id, media_type, title, poster_path, season, episode, watched_at")
-        .eq("user_id", userId)
-        .order("watched_at", { ascending: false })
-        .limit(50);
-      if (error) {
-        console.warn("Could not load watch history:", error);
-        return [];
-      }
-      return (data as WatchHistoryItem[]) ?? [];
+      const local = readContinueWatching();
+      return local.map((item) => ({
+        id: `wh_${item.mediaId}_${item.type}`,
+        tmdb_id: item.mediaId,
+        media_type: item.type,
+        title: item.title,
+        poster_path: item.posterPath,
+        season: item.season ?? null,
+        episode: item.episode ?? null,
+        watched_at: new Date(item.lastWatchedAt).toISOString(),
+      }));
     },
-    enabled: Boolean(session && userId),
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 5,
   });
 
   const clearHistory = useMutation({
     mutationFn: async () => {
-      if (!userId) return;
-      const { error } = await supabase.from("watch_history").delete().eq("user_id", userId);
-      if (error) throw error;
+      try {
+        localStorage.removeItem("bujuu_continue_watching");
+      } catch {}
     },
     onSuccess: () => {
       toast.success("Watch history cleared");
       void qc.invalidateQueries({ queryKey: ["library", "watch-history"] });
+      void qc.invalidateQueries({ queryKey: ["library", "continue-watching"] });
     },
     onError: () => toast.error("Could not clear watch history"),
   });

@@ -1,12 +1,10 @@
-import { Link, useNavigate } from "@tanstack/react-router";
-import { Search, Baby, UserCheck } from "lucide-react";
-import { NotificationBell } from "@/components/layout/NotificationBell";
+import { Link } from "@tanstack/react-router";
+import { Baby, Search, UserCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { NotificationBell } from "@/components/layout/NotificationBell";
 import { Logo } from "@/components/Logo";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useProfile } from "@/context/profile-context";
-
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useProfile } from "@/context/profile-context";
 import { cn } from "@/lib/utils";
 
 export function Header() {
@@ -93,9 +92,6 @@ export function Header() {
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to="/profile">Profile & Settings</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link to="/subscribe">Subscription & Restore</Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-zinc-800" />
               <DropdownMenuItem asChild>
