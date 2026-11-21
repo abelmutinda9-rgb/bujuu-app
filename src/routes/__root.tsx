@@ -141,14 +141,7 @@ function RootComponent() {
       if (processedDeepLinks.has(urlString)) return;
       processedDeepLinks.add(urlString);
 
-      // Handle referral deep link: bujuu://r/:code or /r/:code
-      const rMatch = urlString.match(/(?:bujuu:\/\/r\/|\/r\/)([A-Za-z0-9]{3,16})/i);
-      if (rMatch && rMatch[1]) {
-        const refCode = rMatch[1].toUpperCase();
-        rememberReferral(refCode);
-        toast.success(`Referral code ${refCode} attached!`);
-        return;
-      }
+      // Referrals removed
 
       if (!urlString.startsWith("bujuu://auth/callback")) return;
 

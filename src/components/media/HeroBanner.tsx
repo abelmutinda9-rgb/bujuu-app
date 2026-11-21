@@ -19,9 +19,9 @@ export function HeroBanner({
   items,
   onSelect,
 }: {
-  item?: MediaItem;
-  items?: MediaItem[];
-  onSelect?: (item: MediaItem) => void;
+  item?: MediaItem | undefined;
+  items?: MediaItem[] | undefined;
+  onSelect?: ((item: MediaItem) => void) | undefined;
 }) {
   const rotationItems = useMemo(
     () => (items?.length ? items.slice(0, 5) : item ? [item] : []),
@@ -66,28 +66,17 @@ export function HeroBanner({
   const tags = currentItem.genreIds.map((id) => GENRES[id]).filter(Boolean).slice(0, 3);
   const year = currentItem.releaseDate ? new Date(currentItem.releaseDate).getFullYear() : undefined;
 
-  const handlePlayClick = (e: React.MouseEvent | React.KeyboardEvent) => {
-    if (!signedIn || !isPremium) {
-      e.preventDefault();
-      toast.error("Active subscription (KSh 150 / 30 days) required to watch movies.");
-      void navigate({
-        to: "/subscribe",
-        search: {
-          redirect: `/watch?tmdbId=${currentItem.id}&mediaType=${currentItem.mediaType}&season=1&episode=1`,
-        },
-      });
-    }
+  const handlePlayClick = (_e?: React.SyntheticEvent) => {
+    // Free direct access
   };
 
   const handlePlayKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       handlePlayClick(e);
-      if (signedIn && isPremium) {
-        void navigate({
-          to: "/watch",
-          search: { tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 },
-        });
-      }
+      void navigate({
+        to: "/watch",
+        search: { tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 },
+      });
     }
   };
 

@@ -39,60 +39,42 @@ BEGIN
       END IF;
 
     WHEN 1 THEN
-      -- SuperEmbed / MultiEmbed
-      v_server_name := 'SuperEmbed';
+      -- Vidfast (Default English subtitles)
+      v_server_name := 'Vidfast';
       IF v_is_movie THEN
-        v_url := 'https://multiembed.mov/?video_id=' || p_tmdb_id || '&tmdb=1';
+        v_url := 'https://vidfast.pro/movie/' || p_tmdb_id || '?sub.default=en';
       ELSE
-        v_url := 'https://multiembed.mov/?video_id=' || p_tmdb_id || '&tmdb=1&s=' || v_season || '&e=' || v_episode;
+        v_url := 'https://vidfast.pro/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode || '?sub.default=en';
       END IF;
 
     WHEN 2 THEN
-      -- Vidfast
-      v_server_name := 'Vidfast';
+      -- AutoEmbed
+      v_server_name := 'AutoEmbed';
       IF v_is_movie THEN
-        v_url := 'https://vidfast.pro/movie/' || p_tmdb_id;
+        v_url := 'https://autoembed.co/movie/tmdb/' || p_tmdb_id;
       ELSE
-        v_url := 'https://vidfast.pro/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode;
+        v_url := 'https://autoembed.co/tv/tmdb/' || p_tmdb_id || '-' || v_season || '-' || v_episode;
       END IF;
 
     WHEN 3 THEN
-      -- AutoEmbed (Default English subtitles)
-      v_server_name := 'AutoEmbed';
+      -- VidSrc RIP
+      v_server_name := 'VidSrc RIP';
       IF v_is_movie THEN
-        v_url := 'https://player.autoembed.cc/embed/movie/' || p_tmdb_id || '?sub_default=true&sub_lang=en';
+        v_url := 'https://vidsrc.rip/embed/movie/' || p_tmdb_id;
       ELSE
-        v_url := 'https://player.autoembed.cc/embed/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode || '?sub_default=true&sub_lang=en';
+        v_url := 'https://vidsrc.rip/embed/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode;
       END IF;
 
     WHEN 4 THEN
-      -- Videasy (Default English subtitles)
-      v_server_name := 'Videasy';
+      -- VidSrc TO
+      v_server_name := 'VidSrc TO';
       IF v_is_movie THEN
-        v_url := 'https://player.videasy.net/movie/' || p_tmdb_id || '?sub_default=true';
+        v_url := 'https://vidsrc.to/embed/movie/' || p_tmdb_id;
       ELSE
-        v_url := 'https://player.videasy.net/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode || '?sub_default=true';
+        v_url := 'https://vidsrc.to/embed/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode;
       END IF;
 
     WHEN 5 THEN
-      -- VixSrc
-      v_server_name := 'VixSrc';
-      IF v_is_movie THEN
-        v_url := 'https://vixsrc.to/movie/' || p_tmdb_id;
-      ELSE
-        v_url := 'https://vixsrc.to/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode;
-      END IF;
-
-    WHEN 6 THEN
-      -- VidSrc CC
-      v_server_name := 'VidSrc CC';
-      IF v_is_movie THEN
-        v_url := 'https://vidsrc.cc/v2/embed/movie/' || p_tmdb_id;
-      ELSE
-        v_url := 'https://vidsrc.cc/v2/embed/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode;
-      END IF;
-
-    WHEN 7 THEN
       -- SmashyStream
       v_server_name := 'SmashyStream';
       IF v_is_movie THEN
@@ -101,7 +83,7 @@ BEGIN
         v_url := 'https://player.smashystream.com/tv/' || p_tmdb_id || '?s=' || v_season || '&e=' || v_episode;
       END IF;
 
-    WHEN 8 THEN
+    WHEN 6 THEN
       -- 2Embed
       v_server_name := '2Embed';
       IF v_is_movie THEN
@@ -110,7 +92,7 @@ BEGIN
         v_url := 'https://www.2embed.cc/embedtv/' || p_tmdb_id || '&s=' || v_season || '&e=' || v_episode;
       END IF;
 
-    WHEN 9 THEN
+    WHEN 7 THEN
       -- Vidy
       v_server_name := 'Vidy';
       IF v_is_movie THEN
@@ -119,7 +101,7 @@ BEGIN
         v_url := 'https://vidy.st/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode;
       END IF;
 
-    WHEN 10 THEN
+    WHEN 8 THEN
       -- Vidrock
       v_server_name := 'Vidrock';
       IF v_is_movie THEN
@@ -128,13 +110,31 @@ BEGIN
         v_url := 'https://vidrock.net/embed/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode;
       END IF;
 
-    WHEN 11 THEN
+    WHEN 9 THEN
       -- Vidvault
       v_server_name := 'Vidvault';
       IF v_is_movie THEN
         v_url := 'https://vidvault.to/movie/' || p_tmdb_id;
       ELSE
         v_url := 'https://vidvault.to/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode;
+      END IF;
+
+    WHEN 10 THEN
+      -- SuperEmbed
+      v_server_name := 'SuperEmbed';
+      IF v_is_movie THEN
+        v_url := 'https://multiembed.mov/?video_id=' || p_tmdb_id || '&tmdb=1';
+      ELSE
+        v_url := 'https://multiembed.mov/?video_id=' || p_tmdb_id || '&tmdb=1&s=' || v_season || '&e=' || v_episode;
+      END IF;
+
+    WHEN 11 THEN
+      -- VixSrc
+      v_server_name := 'VixSrc';
+      IF v_is_movie THEN
+        v_url := 'https://vixsrc.to/movie/' || p_tmdb_id;
+      ELSE
+        v_url := 'https://vixsrc.to/tv/' || p_tmdb_id || '/' || v_season || '/' || v_episode;
       END IF;
 
     ELSE

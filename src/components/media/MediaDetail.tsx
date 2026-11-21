@@ -59,18 +59,8 @@ function Body({ item, onOpenChange }: { item: MediaItem; onOpenChange: (open: bo
   const { isPremium, signedIn } = useAccount();
   const navigate = useNavigate();
 
-  const handlePlayClick = (e: React.MouseEvent) => {
-    if (!signedIn || !isPremium) {
-      e.preventDefault();
-      onOpenChange(false);
-      toast.error("Active subscription (KSh 150 / 30 days) required to watch movies.");
-      void navigate({
-        to: "/subscribe",
-        search: {
-          redirect: `/watch?tmdbId=${item.id}&mediaType=${item.mediaType}&season=1&episode=1`,
-        },
-      });
-    }
+  const handlePlayClick = () => {
+    onOpenChange(false);
   };
 
   return (

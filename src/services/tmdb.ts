@@ -35,7 +35,7 @@ export function backdropUrl(path: string | null, size: "w780" | "w1280" | "origi
 
 
 const TMDB_API_KEY =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_TMDB_API_KEY) ||
+  (typeof import.meta !== "undefined" && (import.meta as any).env?.['VITE_TMDB_API_KEY']) ||
   "a0f3ec7ad97db59c00931e7a88a827da";
 
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";

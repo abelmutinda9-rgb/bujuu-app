@@ -33,7 +33,7 @@ export const Route = createFileRoute("/")({
 
 const MATURE_GENRES = new Set([27, 53, 80]);
 function isKidsSafe(item: MediaItem) {
-  return !item.adult && !item.genreIds.some((genre) => MATURE_GENRES.has(genre));
+  return !(item as any).adult && !item.genreIds.some((genre) => MATURE_GENRES.has(genre));
 }
 
 function GenreRowSection({ title, genreId, mediaType = "movie", onSelect }: {

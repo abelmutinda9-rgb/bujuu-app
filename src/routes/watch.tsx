@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import { writeContinueWatching } from "@/lib/history";
-import { tmdbMovie, tmdbTv, tmdbTvSeason } from "@/lib/tmdb.functions";
+import { saveContinueWatching } from "@/lib/history";
+import { detailsQuery, seasonQuery } from "@/services/tmdb";
 import { resolveBackendStream, SERVER_COUNT, type StreamSource } from "@/services/embeds";
 
 const searchSchema = z.object({
@@ -36,45 +36,28 @@ function WatchPage() {
   const [iframeLoading, setIframeLoading] = useState(true);
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false);
   const [failoverAttempt, setFailoverAttempt] = useState(0);
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch title metadata from TMDB
-  const mediaQuery = useQuery({
-    queryKey: ["watch-meta", mediaType, tmdbId],
-    queryFn: async () => {
-      if (mediaType === "tv") {
-        return await tmdbTv(tmdbId);
-      }
-      return await tmdbMovie(tmdbId);
-    },
-    staleTime: 1000 * 60 * 10,
-  });
+  const details = useQuery(detailsQuery(tmdbId, mediaType));
 
   // If TV show, fetch season episodes for episode selection
-  const seasonQuery = useQuery({
-    queryKey: ["watch-season", tmdbId, season],
-    enabled: mediaType === "tv",
-    queryFn: async () => {
-      return await tmdbTvSeason(tmdbId, season);
-    },
-    staleTime: 1000 * 60 * 10,
-  });
+  const seasons = useQuery(seasonQuery(tmdbId, season, mediaType === "tv"));
 
-  const media = mediaQuery.data;
-  const title = (media as any)?.title || (media as any)?.name || (mediaType === "movie" ? "Movie" : "Series");
+  const media = details.data;
+  const title = media?.title || (mediaType === "movie" ? "Movie" : "Series");
 
   // Save to continue watching in local storage
   useEffect(() => {
     if (!media) return;
     try {
-      writeContinueWatching({
-        tmdbId,
-        mediaType,
+      saveContinueWatching({
+        mediaId: tmdbId,
+        type: mediaType,
         title,
-        posterPath: (media as any).poster_path ?? null,
-        backdropPath: (media as any).backdrop_path ?? null,
-        season: mediaType === "tv" ? season : 1,
-        episode: mediaType === "tv" ? episode : 1,
-        updatedAt: Date.now(),
+        posterPath: media.posterPath ?? null,
+        ...(mediaType === "tv" ? { season, episode } : {}),
       });
     } catch (e) {
       console.warn("Failed to save continue watching:", e);
@@ -105,18 +88,50 @@ function WatchPage() {
     };
   }, [tmdbId, mediaType, season, episode, serverIndex]);
 
+  // Automated Watchdog: If current provider doesn't load within 6.5s, silently failover
+  useEffect(() => {
+    if (!iframeLoading) return;
+
+    const watchdog = setTimeout(() => {
+      if (failoverAttempt < SERVER_COUNT - 1) {
+        setServerIndex((prev) => (prev + 1) % SERVER_COUNT);
+        setFailoverAttempt((prev) => prev + 1);
+        setIframeLoading(true);
+      }
+    }, 6500);
+
+    return () => clearTimeout(watchdog);
+  }, [iframeLoading, serverIndex, failoverAttempt]);
+
   // Reset server index if user changes episode or title
   useEffect(() => {
     setServerIndex(0);
     setFailoverAttempt(0);
+    setIframeLoading(true);
   }, [tmdbId, season, episode]);
 
-  // Silent automatic failover handler
+  // Activity timer for auto-hiding the top bar during playback
+  const handleUserActivity = () => {
+    setHeaderVisible(true);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      setHeaderVisible(false);
+    }, 3500);
+  };
+
+  useEffect(() => {
+    handleUserActivity();
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, []);
+
+  // Manual alternative stream switch
   const handleNextServer = () => {
     setIframeLoading(true);
     setServerIndex((prev) => (prev + 1) % SERVER_COUNT);
     setFailoverAttempt((prev) => prev + 1);
-    toast.info("Switching to optimized backup stream…");
+    toast.info("Switching to alternative backup stream…");
   };
 
   const handleSelectEpisode = (epNum: number) => {
@@ -133,9 +148,18 @@ function WatchPage() {
   };
 
   return (
-    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-black text-white">
-      {/* Top Floating Control Bar */}
-      <header className="absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/90 via-black/50 to-transparent p-4 sm:p-6 transition-opacity duration-300">
+    <div
+      className="relative flex h-screen w-screen flex-col overflow-hidden bg-black text-white"
+      onMouseMove={handleUserActivity}
+      onTouchStart={handleUserActivity}
+      onClick={handleUserActivity}
+    >
+      {/* Top Floating Control Bar - Auto-hiding */}
+      <header
+        className={`absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/90 via-black/50 to-transparent p-4 sm:p-6 transition-opacity duration-300 ${
+          headerVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
+      >
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -179,12 +203,12 @@ function WatchPage() {
             </Button>
           )}
 
-          {/* Quick Reload / Failover button if stream hangs */}
+          {/* Quick Alternative Stream switch */}
           <Button
             variant="ghost"
             size="icon"
             onClick={handleNextServer}
-            title="Reload or try alternative source"
+            title="Try alternative stream"
             className="h-10 w-10 rounded-full bg-black/60 text-zinc-300 backdrop-blur-md hover:bg-white/20 hover:text-white"
           >
             <RotateCcw className="h-4 w-4" />
@@ -194,12 +218,12 @@ function WatchPage() {
 
       {/* Main Cinema Viewport */}
       <div className="relative flex-1 w-full h-full bg-black">
-        {/* Loading overlay */}
+        {/* Loading / Failover overlay */}
         {iframeLoading && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm space-y-3">
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/90 backdrop-blur-sm space-y-3">
             <Loader2 className="h-10 w-10 animate-spin text-rose-500" />
             <p className="text-sm font-medium text-zinc-300">
-              Connecting stream…
+              {failoverAttempt > 0 ? "Connecting to backup stream…" : "Connecting stream…"}
             </p>
           </div>
         )}
@@ -214,6 +238,11 @@ function WatchPage() {
             allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
             allowFullScreen
             onLoad={() => setIframeLoading(false)}
+            onError={() => {
+              // Immediate auto-advance on network load failure
+              setServerIndex((prev) => (prev + 1) % SERVER_COUNT);
+              setFailoverAttempt((prev) => prev + 1);
+            }}
           />
         )}
       </div>
@@ -237,17 +266,17 @@ function WatchPage() {
           </div>
 
           <div className="mt-4 flex-1 overflow-y-auto space-y-2 pr-1">
-            {seasonQuery.isLoading ? (
+            {seasons.isLoading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-rose-500" />
               </div>
             ) : (
-              seasonQuery.data?.episodes?.map((ep: any) => {
-                const isCurrent = ep.episode_number === episode;
+              seasons.data?.map((ep) => {
+                const isCurrent = ep.episodeNumber === episode;
                 return (
                   <button
-                    key={ep.id || ep.episode_number}
-                    onClick={() => handleSelectEpisode(ep.episode_number)}
+                    key={ep.episodeNumber}
+                    onClick={() => handleSelectEpisode(ep.episodeNumber)}
                     className={`w-full text-left p-3 rounded-xl border transition-all flex items-start gap-3 ${
                       isCurrent
                         ? "bg-rose-950/40 border-rose-500 text-white"
@@ -255,10 +284,10 @@ function WatchPage() {
                     }`}
                   >
                     <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-black text-xs font-bold">
-                      {ep.episode_number}
+                      {ep.episodeNumber}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{ep.name || `Episode ${ep.episode_number}`}</p>
+                      <p className="truncate text-sm font-semibold">{ep.name || `Episode ${ep.episodeNumber}`}</p>
                       {ep.overview && (
                         <p className="line-clamp-2 text-xs text-zinc-400 mt-0.5">{ep.overview}</p>
                       )}

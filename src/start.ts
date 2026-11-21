@@ -94,7 +94,7 @@ const csrfMiddleware = createCsrfMiddleware({
 });
 
 export const REMOTE_BACKEND_BASE =
-  (typeof process !== "undefined" && process.env?.VITE_BACKEND_URL) ||
+  (typeof process !== "undefined" && (process.env as any)?.['VITE_BACKEND_URL']) ||
   ((import.meta as any).env?.VITE_BACKEND_URL) ||
   "https://app.bujuu.tv";
 

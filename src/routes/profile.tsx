@@ -73,7 +73,7 @@ function ProfilePage() {
       {
         id: crypto.randomUUID(),
         name: nameInput.trim(),
-        avatarColor: colors[profiles.length % colors.length],
+        avatarColor: colors[profiles.length % colors.length] ?? "#be123c",
         isKids: false,
       },
     ];
@@ -200,7 +200,7 @@ function ProfilePage() {
               />
               <Button
                 onClick={() => {
-                  if (pinInput.length !== 4) return toast.error("PIN must be exactly 4 digits");
+                  if (pinInput.length !== 4) { toast.error("PIN must be exactly 4 digits"); return; }
                   setParentPin(pinInput);
                   setPinInput("");
                   toast.success("Kids PIN saved");
