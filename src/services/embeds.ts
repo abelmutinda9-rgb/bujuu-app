@@ -7,8 +7,8 @@
 export interface StreamTarget {
   tmdbId: number;
   mediaType: "movie" | "tv";
-  season?: number;
-  episode?: number;
+  season?: number | undefined;
+  episode?: number | undefined;
 }
 
 export interface StreamSource {
@@ -39,7 +39,10 @@ export const SERVER_LABELS: readonly string[] = [
 /**
  * Builds the embed URL for a given provider index with default English subtitles where supported.
  */
-export function buildEmbedUrl(target: StreamTarget, serverIndex: number): { url: string; name: string } {
+export function buildEmbedUrl(
+  target: StreamTarget,
+  serverIndex: number,
+): { url: string; name: string } {
   const { tmdbId, mediaType } = target;
   const s = Math.max(1, target.season ?? 1);
   const e = Math.max(1, target.episode ?? 1);
@@ -113,9 +116,7 @@ export function buildEmbedUrl(target: StreamTarget, serverIndex: number): { url:
     case 7:
       // Vidy
       return {
-        url: isMovie
-          ? `https://vidy.st/movie/${tmdbId}`
-          : `https://vidy.st/tv/${tmdbId}/${s}/${e}`,
+        url: isMovie ? `https://vidy.st/movie/${tmdbId}` : `https://vidy.st/tv/${tmdbId}/${s}/${e}`,
         name: "Vidy",
       };
 
@@ -174,14 +175,15 @@ export function embedUrl(
   serverIndexOrMediaType?: number | "movie" | "tv",
   season: number = 1,
   episode: number = 1,
-  serverIndex: number = 0
+  serverIndex: number = 0,
 ): string {
   if (typeof targetOrTmdbId === "object") {
     const sIdx = typeof serverIndexOrMediaType === "number" ? serverIndexOrMediaType : 0;
     return buildEmbedUrl(targetOrTmdbId, sIdx).url;
   }
   const mType = (serverIndexOrMediaType as "movie" | "tv") ?? "movie";
-  return buildEmbedUrl({ tmdbId: targetOrTmdbId, mediaType: mType, season, episode }, serverIndex).url;
+  return buildEmbedUrl({ tmdbId: targetOrTmdbId, mediaType: mType, season, episode }, serverIndex)
+    .url;
 }
 
 /**
@@ -189,7 +191,7 @@ export function embedUrl(
  */
 export async function resolveBackendStream(
   target: StreamTarget,
-  serverIndex: number = 0
+  serverIndex: number = 0,
 ): Promise<StreamSource> {
   const normalizedIndex = ((serverIndex % SERVER_COUNT) + SERVER_COUNT) % SERVER_COUNT;
   const { url, name } = buildEmbedUrl(target, normalizedIndex);

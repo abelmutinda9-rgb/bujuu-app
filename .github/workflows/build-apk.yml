@@ -59,9 +59,6 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_CXpMyEAQc2MWHs029MOn-A_DnDfF-YF"
           VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3aGF3amNrbnFpbHlwYmdveXhvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMTU5NzQsImV4cCI6MjEwODg5MTk3NH0.ZJHgMkSjc1nIXKZir4zh-5RfZUi13rUYC0cyuVtTV8U"
           VITE_BACKEND_URL: "https://lynnn.lovable.app"
-          VITE_PAYHERO_API_USERNAME: "Fwn62pjQ6lqCzqeExV9h"
-          VITE_PAYHERO_API_PASSWORD: "Dfy4GMR0UefuaAU7vrm95nZpPEXrFPpahMynupTb"
-          VITE_PAYHERO_CHANNEL_ID: "12608"
         run: |
           bun run build
           mkdir -p dist/client
@@ -95,14 +92,13 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "BUJUU Android App v2.1"
+          name: "BUJUU Android App v2.2"
           body: |
-            ### BUJUU Android Release v2.1 (Device Trial, Kids Mode, All-Genres & Dedicated Backend)
-            - **New Dedicated Supabase Backend**: Integrated high-speed PostgreSQL backend for 72-hour device-based trials, PayHero M-Pesa STK push payments (KSh 150 / 30 days), and cross-device subscription transfer codes.
-            - **Adult & Kids Profiles with Parental PIN**: Smooth profile switching with 4-digit numeric TV & touch keypad PIN protection to guard adult content and curate kid-friendly catalogs.
-            - **Comprehensive All-Genres Browsing**: Over 15 dynamic genre sections and high-speed hero banner carousel for effortless discovery.
-            - **Brave adblock-rust Engine**: Complete native popup blocking, redirect suppression, and video ad shielding for flawless streaming across all providers.
-            - **Seamless In-Place Android Updates**: versionCode 12 (v2.1) signed with permanent debug keystore for direct update installation without uninstalling.
+            ### BUJUU Android Release v2.2
+            - Dedicated BUJUU watch page with a custom video player.
+            - HLS stream resolution with embed fallback, quality selection, picture-in-picture, fullscreen, and aspect-ratio controls where supported.
+            - Anonymous device-library sync for watchlist and continue-watching after the database migration and anonymous sign-in are enabled.
+            - Subtitle-service integration is not included in this release.
           files: bujuu-app.apk
           prerelease: false
           make_latest: true

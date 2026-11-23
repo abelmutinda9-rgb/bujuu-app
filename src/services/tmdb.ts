@@ -33,9 +33,8 @@ export function backdropUrl(path: string | null, size: "w780" | "w1280" | "origi
   return path ? `${IMAGE_BASE}/${size}${path}` : null;
 }
 
-
 const TMDB_API_KEY =
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.['VITE_TMDB_API_KEY']) ||
+  (typeof import.meta !== "undefined" && (import.meta as any).env?.["VITE_TMDB_API_KEY"]) ||
   "a0f3ec7ad97db59c00931e7a88a827da";
 
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
@@ -108,7 +107,8 @@ export const topTenQuery = () =>
 export const popularActionQuery = () =>
   queryOptions({
     queryKey: ["tmdb", "action"],
-    queryFn: () => list("/discover/movie", { with_genres: "28", sort_by: "popularity.desc" }, "movie"),
+    queryFn: () =>
+      list("/discover/movie", { with_genres: "28", sort_by: "popularity.desc" }, "movie"),
     staleTime: 1000 * 60 * 10,
   });
 
@@ -195,9 +195,6 @@ export function stillUrl(path: string | null) {
   return path ? `${IMAGE_BASE}/w300${path}` : null;
 }
 
-
-
-
 /* ---------- Infinite catalog / search ---------- */
 
 export interface Page {
@@ -270,7 +267,6 @@ export const GENRES: Record<number, string> = {
   10765: "Sci-Fi & Fantasy",
 };
 
-
 /** Daily rotating seed to prevent stale content */
 export function getDailySeed(): number {
   const now = new Date();
@@ -304,4 +300,53 @@ export const nowPlayingQuery = () =>
     queryKey: ["tmdb", "now-playing"],
     queryFn: () => list("/movie/now_playing", { page: "1" }, "movie"),
     staleTime: 1000 * 60 * 60,
+  });
+
+export interface CastMember {
+  id: number;
+  name: string;
+  character: string;
+  profilePath: string | null;
+}
+
+export const recommendationsQuery = (id: number | null, mediaType: MediaType) =>
+  queryOptions({
+    queryKey: ["tmdb", "recommendations", mediaType, id],
+    queryFn: async (): Promise<MediaItem[]> => {
+      if (!id) return [];
+      try {
+        const raw = await tmdbFetch<any>(`/${mediaType}/${id}/recommendations`);
+        const results = raw?.results ?? [];
+        if (results.length > 0) {
+          return results.map((item: any) => normalize(item, mediaType));
+        }
+        const similar = await tmdbFetch<any>(`/${mediaType}/${id}/similar`);
+        return (similar?.results ?? []).map((item: any) => normalize(item, mediaType));
+      } catch {
+        return [];
+      }
+    },
+    enabled: id != null,
+    staleTime: 1000 * 60 * 30,
+  });
+
+export const creditsQuery = (id: number | null, mediaType: MediaType) =>
+  queryOptions({
+    queryKey: ["tmdb", "credits", mediaType, id],
+    queryFn: async (): Promise<CastMember[]> => {
+      if (!id) return [];
+      try {
+        const raw = await tmdbFetch<any>(`/${mediaType}/${id}/credits`);
+        return (raw?.cast ?? []).slice(0, 10).map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          character: c.character || "",
+          profilePath: c.profile_path ? `${IMAGE_BASE}/w185${c.profile_path}` : null,
+        }));
+      } catch {
+        return [];
+      }
+    },
+    enabled: id != null,
+    staleTime: 1000 * 60 * 30,
   });

@@ -1,9 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { MediaCard } from "@/components/media/MediaCard";
-import { MediaDetail } from "@/components/media/MediaDetail";
 import { useMyList } from "@/hooks/use-library";
 import type { MediaItem } from "@/services/tmdb";
 
@@ -23,8 +21,8 @@ export const Route = createFileRoute("/my-list")({
 });
 
 function MyListPage() {
+  const navigate = useNavigate();
   const list = useMyList();
-  const [selected, setSelected] = useState<MediaItem | null>(null);
   const items: MediaItem[] = (list.data ?? []).map((r) => ({
     id: r.tmdb_id,
     mediaType: r.media_type as MediaItem["mediaType"],
@@ -36,6 +34,18 @@ function MyListPage() {
     voteAverage: 0,
     genreIds: [],
   }));
+
+  const handleSelect = (item: MediaItem) => {
+    void navigate({
+      to: "/watch",
+      search: {
+        tmdbId: item.id,
+        mediaType: item.mediaType,
+        season: 1,
+        episode: 1,
+      },
+    });
+  };
 
   return (
     <AppShell>
@@ -49,17 +59,16 @@ function MyListPage() {
           </div>
         ) : items.length === 0 ? (
           <p className="mt-6 text-sm text-zinc-400">
-            Nothing saved yet. Tap “My List” on any movie or TV series to keep it here.
+            Nothing saved yet. Tap “Add to list” on any movie or TV series to keep it here.
           </p>
         ) : (
           <div className="mt-6 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6 [&>button]:w-full">
             {items.map((item) => (
-              <MediaCard key={`${item.mediaType}-${item.id}`} item={item} onSelect={setSelected} />
+              <MediaCard key={`${item.mediaType}-${item.id}`} item={item} onSelect={handleSelect} />
             ))}
           </div>
         )}
       </div>
-      <MediaDetail item={selected} onOpenChange={(o) => !o && setSelected(null)} />
     </AppShell>
   );
 }

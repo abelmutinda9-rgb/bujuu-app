@@ -1,3 +1,5 @@
+import { syncRecordToBackend } from "./device-backend";
+
 export type ContinueMediaType = "movie" | "tv";
 
 export interface ContinueWatchingEntry {
@@ -5,8 +7,10 @@ export interface ContinueWatchingEntry {
   type: ContinueMediaType;
   title: string;
   posterPath: string | null;
-  season?: number;
-  episode?: number;
+  season?: number | undefined;
+  episode?: number | undefined;
+  watchedSeconds?: number | undefined;
+  durationSeconds?: number | undefined;
   lastWatchedAt: number;
 }
 
@@ -20,9 +24,13 @@ export function readContinueWatching(): ContinueWatchingEntry[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((entry): entry is ContinueWatchingEntry =>
-        entry && typeof entry.mediaId === "number" &&
-        (entry.type === "movie" || entry.type === "tv") &&
-        typeof entry.title === "string" && typeof entry.lastWatchedAt === "number",
+        Boolean(
+          entry &&
+          typeof entry.mediaId === "number" &&
+          (entry.type === "movie" || entry.type === "tv") &&
+          typeof entry.title === "string" &&
+          typeof entry.lastWatchedAt === "number",
+        ),
       )
       .sort((a, b) => b.lastWatchedAt - a.lastWatchedAt)
       .slice(0, MAX_ENTRIES);
@@ -31,15 +39,33 @@ export function readContinueWatching(): ContinueWatchingEntry[] {
   }
 }
 
-export function saveContinueWatching(entry: Omit<ContinueWatchingEntry, "lastWatchedAt">): ContinueWatchingEntry[] {
+export function saveContinueWatching(
+  entry: Omit<ContinueWatchingEntry, "lastWatchedAt">,
+): ContinueWatchingEntry[] {
   const next: ContinueWatchingEntry = { ...entry, lastWatchedAt: Date.now() };
-  const list = [next, ...readContinueWatching().filter((item) => item.mediaId !== entry.mediaId)]
-    .slice(0, MAX_ENTRIES);
+  const list = [
+    next,
+    ...readContinueWatching().filter((item) => item.mediaId !== entry.mediaId),
+  ].slice(0, MAX_ENTRIES);
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
     window.dispatchEvent(new CustomEvent("bujuu:continue-watching", { detail: list }));
   } catch {
-    // Storage can be unavailable in private browsing; playback must still work.
+    // Local storage can be unavailable in private browsing contexts.
   }
+
+  // Sync to backend device library
+  void syncRecordToBackend({
+    tmdbId: entry.mediaId,
+    mediaType: entry.type,
+    itemKind: "continue_watching",
+    title: entry.title,
+    posterPath: entry.posterPath,
+    season: entry.season,
+    episode: entry.episode,
+    progressSeconds: entry.watchedSeconds ?? 0,
+    durationSeconds: entry.durationSeconds ?? null,
+  });
+
   return list;
 }

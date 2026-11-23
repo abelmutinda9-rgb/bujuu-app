@@ -1,11 +1,10 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Loader2, Search as SearchIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { MediaCard } from "@/components/media/MediaCard";
-import { MediaDetail } from "@/components/media/MediaDetail";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { GENRES, infiniteCatalog, peopleQuery, type MediaItem } from "@/services/tmdb";
 
@@ -25,15 +24,27 @@ const CHIPS = ["All", "Movies", "TV Shows", "Actors", "Genres"] as const;
 type Chip = (typeof CHIPS)[number];
 
 function SearchPage() {
+  const navigate = useNavigate();
   const [term, setTerm] = useState("");
   const [chip, setChip] = useState<Chip>("All");
   const [genre, setGenre] = useState<number | null>(null);
-  const [selected, setSelected] = useState<MediaItem | null>(null);
 
   const debounced = useDebouncedValue(term, 300);
 
   const catalog = useInfiniteQuery(infiniteCatalog(debounced));
   const people = useQuery(peopleQuery(debounced));
+
+  const handleSelect = (item: MediaItem) => {
+    void navigate({
+      to: "/watch",
+      search: {
+        tmdbId: item.id,
+        mediaType: item.mediaType,
+        season: 1,
+        episode: 1,
+      },
+    });
+  };
 
   const base = useMemo(() => {
     const source =
@@ -48,42 +59,48 @@ function SearchPage() {
   }, [chip, people.data, catalog.data]);
 
   const items = useMemo(() => {
-    if (chip === "Movies") return base.filter((i) => i.mediaType === "movie");
-    if (chip === "TV Shows") return base.filter((i) => i.mediaType === "tv");
-    if (chip === "Genres" && genre != null) return base.filter((i) => i.genreIds.includes(genre));
-    return base;
+    let result = base;
+    if (chip === "Movies") result = result.filter((i) => i.mediaType === "movie");
+    if (chip === "TV Shows") result = result.filter((i) => i.mediaType === "tv");
+    if (genre != null) result = result.filter((i) => i.genreIds.includes(genre));
+    return result;
   }, [base, chip, genre]);
 
   const availableGenres = useMemo(() => {
-    const ids = new Set<number>();
-    base.forEach((i) => i.genreIds.forEach((g) => ids.add(g)));
-    return [...ids].filter((id) => GENRES[id]).slice(0, 12);
+    const set = new Set<number>();
+    for (const item of base) {
+      for (const g of item.genreIds) set.add(g);
+    }
+    return Array.from(set).filter((id) => GENRES[id]);
   }, [base]);
 
-  // Infinite scroll sentinel
-  const sentinel = useRef<HTMLDivElement | null>(null);
+  const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || chip === "Actors") return;
-    const io = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting && catalog.hasNextPage && !catalog.isFetchingNextPage) {
-        void catalog.fetchNextPage();
-      }
-    });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [chip, catalog]);
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && catalog.hasNextPage && !catalog.isFetchingNextPage) {
+          void catalog.fetchNextPage();
+        }
+      },
+      { rootMargin: "300px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [catalog]);
 
   return (
     <AppShell>
-      <div className="px-4 pt-20 lg:px-8">
-        <div className="flex items-center gap-3 rounded-md bg-secondary px-3 py-2">
-          <SearchIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <div className="pt-20 px-4 lg:px-8">
+        <div className="relative">
+          <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
+            type="search"
             value={term}
             onChange={(e) => setTerm(e.target.value)}
-            placeholder="Search movies and series"
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder="Search titles, actors, genres…"
+            className="w-full rounded-full border border-border bg-secondary py-2.5 pl-9 pr-4 text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground focus:ring-4 focus:ring-brand"
           />
         </div>
 
@@ -132,7 +149,7 @@ function SearchPage() {
 
         <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
           {items.map((item) => (
-            <MediaCard key={`${item.mediaType}-${item.id}`} item={item} onSelect={setSelected} />
+            <MediaCard key={`${item.mediaType}-${item.id}`} item={item} onSelect={handleSelect} />
           ))}
         </div>
 
@@ -142,8 +159,6 @@ function SearchPage() {
           )}
         </div>
       </div>
-
-      <MediaDetail item={selected} onOpenChange={(open) => !open && setSelected(null)} />
     </AppShell>
   );
 }

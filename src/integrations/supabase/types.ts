@@ -568,6 +568,57 @@ export type Database = {
         }
         Relationships: []
       }
+      device_library: {
+        Row: {
+          backdrop_path: string | null
+          device_id: string
+          duration_seconds: number | null
+          episode: number | null
+          id: string
+          item_kind: string
+          media_type: string
+          owner_id: string
+          poster_path: string | null
+          progress_seconds: number | null
+          season: number | null
+          title: string
+          tmdb_id: number
+          updated_at: string
+        }
+        Insert: {
+          backdrop_path?: string | null
+          device_id: string
+          duration_seconds?: number | null
+          episode?: number | null
+          id?: string
+          item_kind?: string
+          media_type: string
+          owner_id?: string
+          poster_path?: string | null
+          progress_seconds?: number | null
+          season?: number | null
+          title: string
+          tmdb_id: number
+          updated_at?: string
+        }
+        Update: {
+          backdrop_path?: string | null
+          device_id?: string
+          duration_seconds?: number | null
+          episode?: number | null
+          id?: string
+          item_kind?: string
+          media_type?: string
+          owner_id?: string
+          poster_path?: string | null
+          progress_seconds?: number | null
+          season?: number | null
+          title?: string
+          tmdb_id?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       watchlist: {
         Row: {
           backdrop_path: string | null
