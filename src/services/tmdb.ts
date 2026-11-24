@@ -18,10 +18,19 @@ export interface MediaItem {
   genreIds: number[];
 }
 
+export interface SeasonInfo {
+  seasonNumber: number;
+  name: string;
+  episodeCount: number;
+  overview?: string;
+  posterPath?: string | null;
+}
+
 export interface MediaDetails extends MediaItem {
   genres: string[];
   runtimeMinutes: number | null;
   seasons: number | null;
+  seasonsList?: SeasonInfo[];
   tagline: string | null;
 }
 
@@ -39,7 +48,32 @@ const TMDB_API_KEY =
 
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 
+const memoryCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL_MS = 1000 * 60 * 60 * 4; // 4 hours
+
 async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  const cacheKey = `${path}?${new URLSearchParams(params).toString()}`;
+
+  // 1. Check memory cache
+  const mem = memoryCache.get(cacheKey);
+  if (mem && Date.now() - mem.timestamp < CACHE_TTL_MS) {
+    return mem.data as T;
+  }
+
+  // 2. Check localStorage cache
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(`bujuu_tmdb_${cacheKey}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Date.now() - parsed.timestamp < CACHE_TTL_MS) {
+          memoryCache.set(cacheKey, parsed);
+          return parsed.data as T;
+        }
+      }
+    } catch {}
+  }
+
   try {
     const url = new URL("https://api.themoviedb.org/3" + path);
     url.searchParams.set("api_key", TMDB_API_KEY);
@@ -49,7 +83,17 @@ async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): 
     }
     const res = await fetch(url.toString());
     if (res.ok) {
-      return (await res.json()) as T;
+      const json = (await res.json()) as T;
+      memoryCache.set(cacheKey, { data: json, timestamp: Date.now() });
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `bujuu_tmdb_${cacheKey}`,
+            JSON.stringify({ data: json, timestamp: Date.now() }),
+          );
+        } catch {}
+      }
+      return json;
     }
   } catch (err) {
     console.warn("Direct TMDB fetch failed, falling back to server function:", err);
@@ -133,12 +177,23 @@ export const detailsQuery = (id: number | null, mediaType: MediaType) =>
     queryFn: async (): Promise<MediaDetails> => {
       const raw = await tmdbFetch<any>(`/${mediaType}/${id}`);
       const base = normalize(raw, mediaType);
+      const seasonsList: SeasonInfo[] = (raw.seasons ?? [])
+        .filter((s: any) => s.season_number > 0 || (s.episode_count && s.episode_count > 0))
+        .map((s: any) => ({
+          seasonNumber: s.season_number,
+          name: s.name || `Season ${s.season_number}`,
+          episodeCount: s.episode_count || 0,
+          overview: s.overview || "",
+          posterPath: s.poster_path || null,
+        }));
+
       return {
         ...base,
         mediaType,
         genres: (raw.genres ?? []).map((g: any) => g.name),
         runtimeMinutes: raw.runtime ?? raw.episode_run_time?.[0] ?? null,
-        seasons: raw.number_of_seasons ?? null,
+        seasons: raw.number_of_seasons ?? (seasonsList.length > 0 ? seasonsList.length : null),
+        seasonsList,
         tagline: raw.tagline || null,
       };
     },

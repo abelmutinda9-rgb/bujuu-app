@@ -1,15 +1,11 @@
 /**
- * BUJUU Multi-Server Stream Resolver
- * 12 fast embed providers with automated silent failover and default English subtitles.
- * Server 6 (Vidzee) removed per spec.
+ * BUJUU Multi-Server Stream Embed Resolver
+ * Curated 12-provider pool with top 5 fast providers and default English subtitles.
  */
 
-export interface StreamTarget {
-  tmdbId: number;
-  mediaType: "movie" | "tv";
-  season?: number | undefined;
-  episode?: number | undefined;
-}
+import { getCachedProviders, type StreamTarget } from "./remote-config";
+
+export type { StreamTarget };
 
 export interface StreamSource {
   authorized: boolean;
@@ -23,16 +19,16 @@ export const SERVER_COUNT = 12;
 
 export const SERVER_LABELS: readonly string[] = [
   "Server 1 (VidLink)",
-  "Server 2 (Vidfast)",
-  "Server 3 (AutoEmbed)",
-  "Server 4 (VidSrc RIP)",
-  "Server 5 (VidSrc TO)",
-  "Server 6 (SmashyStream)",
-  "Server 7 (2Embed)",
-  "Server 8 (Vidy)",
-  "Server 9 (Vidrock)",
-  "Server 10 (Vidvault)",
-  "Server 11 (SuperEmbed)",
+  "Server 2 (AutoEmbed)",
+  "Server 3 (SuperEmbed)",
+  "Server 4 (Videasy)",
+  "Server 5 (2Embed)",
+  "Server 6 (VidSrc RIP)",
+  "Server 7 (VidSrc TO)",
+  "Server 8 (SmashyStream)",
+  "Server 9 (Vidy)",
+  "Server 10 (Vidrock)",
+  "Server 11 (Vidvault)",
   "Server 12 (VixSrc)",
 ];
 
@@ -49,6 +45,9 @@ export function buildEmbedUrl(
   const isMovie = mediaType === "movie";
   const idx = ((serverIndex % SERVER_COUNT) + SERVER_COUNT) % SERVER_COUNT;
 
+  const remote = getCachedProviders()[idx];
+  const serverName = remote?.name || SERVER_LABELS[idx] || `Server ${idx + 1}`;
+
   switch (idx) {
     case 0:
       // VidLink - Fast, reliable, auto-defaults English subtitles
@@ -56,95 +55,95 @@ export function buildEmbedUrl(
         url: isMovie
           ? `https://vidlink.pro/movie/${tmdbId}?primaryColor=e50914&sub.default=en`
           : `https://vidlink.pro/tv/${tmdbId}/${s}/${e}?primaryColor=e50914&sub.default=en`,
-        name: "VidLink",
+        name: serverName,
       };
 
     case 1:
-      // Vidfast - Highly responsive
-      return {
-        url: isMovie
-          ? `https://vidfast.pro/movie/${tmdbId}?sub.default=en`
-          : `https://vidfast.pro/tv/${tmdbId}/${s}/${e}?sub.default=en`,
-        name: "Vidfast",
-      };
-
-    case 2:
       // AutoEmbed - Verified responsive domain
       return {
         url: isMovie
           ? `https://autoembed.co/movie/tmdb/${tmdbId}`
           : `https://autoembed.co/tv/tmdb/${tmdbId}-${s}-${e}`,
-        name: "AutoEmbed",
+        name: serverName,
       };
 
-    case 3:
-      // VidSrc RIP
-      return {
-        url: isMovie
-          ? `https://vidsrc.rip/embed/movie/${tmdbId}`
-          : `https://vidsrc.rip/embed/tv/${tmdbId}/${s}/${e}`,
-        name: "VidSrc RIP",
-      };
-
-    case 4:
-      // VidSrc TO
-      return {
-        url: isMovie
-          ? `https://vidsrc.to/embed/movie/${tmdbId}`
-          : `https://vidsrc.to/embed/tv/${tmdbId}/${s}/${e}`,
-        name: "VidSrc TO",
-      };
-
-    case 5:
-      // SmashyStream
-      return {
-        url: isMovie
-          ? `https://player.smashystream.com/movie/${tmdbId}`
-          : `https://player.smashystream.com/tv/${tmdbId}?s=${s}&e=${e}`,
-        name: "SmashyStream",
-      };
-
-    case 6:
-      // 2Embed
-      return {
-        url: isMovie
-          ? `https://www.2embed.cc/embed/${tmdbId}`
-          : `https://www.2embed.cc/embedtv/${tmdbId}&s=${s}&e=${e}`,
-        name: "2Embed",
-      };
-
-    case 7:
-      // Vidy
-      return {
-        url: isMovie ? `https://vidy.st/movie/${tmdbId}` : `https://vidy.st/tv/${tmdbId}/${s}/${e}`,
-        name: "Vidy",
-      };
-
-    case 8:
-      // Vidrock
-      return {
-        url: isMovie
-          ? `https://vidrock.net/embed/movie/${tmdbId}`
-          : `https://vidrock.net/embed/tv/${tmdbId}/${s}/${e}`,
-        name: "Vidrock",
-      };
-
-    case 9:
-      // Vidvault
-      return {
-        url: isMovie
-          ? `https://vidvault.to/movie/${tmdbId}`
-          : `https://vidvault.to/tv/${tmdbId}/${s}/${e}`,
-        name: "Vidvault",
-      };
-
-    case 10:
+    case 2:
       // SuperEmbed / MultiEmbed
       return {
         url: isMovie
           ? `https://multiembed.mov/?video_id=${tmdbId}&tmdb=1`
           : `https://multiembed.mov/?video_id=${tmdbId}&tmdb=1&s=${s}&e=${e}`,
-        name: "SuperEmbed",
+        name: serverName,
+      };
+
+    case 3:
+      // Videasy - Clean, fast backup
+      return {
+        url: isMovie
+          ? `https://player.videasy.net/movie/${tmdbId}`
+          : `https://player.videasy.net/tv/${tmdbId}/${s}/${e}`,
+        name: serverName,
+      };
+
+    case 4:
+      // 2Embed
+      return {
+        url: isMovie
+          ? `https://www.2embed.cc/embed/${tmdbId}`
+          : `https://www.2embed.cc/embedtv/${tmdbId}&s=${s}&e=${e}`,
+        name: serverName,
+      };
+
+    case 5:
+      // VidSrc RIP
+      return {
+        url: isMovie
+          ? `https://vidsrc.rip/embed/movie/${tmdbId}`
+          : `https://vidsrc.rip/embed/tv/${tmdbId}/${s}/${e}`,
+        name: serverName,
+      };
+
+    case 6:
+      // VidSrc TO
+      return {
+        url: isMovie
+          ? `https://vidsrc.to/embed/movie/${tmdbId}`
+          : `https://vidsrc.to/embed/tv/${tmdbId}/${s}/${e}`,
+        name: serverName,
+      };
+
+    case 7:
+      // SmashyStream
+      return {
+        url: isMovie
+          ? `https://player.smashystream.com/movie/${tmdbId}`
+          : `https://player.smashystream.com/tv/${tmdbId}?s=${s}&e=${e}`,
+        name: serverName,
+      };
+
+    case 8:
+      // Vidy
+      return {
+        url: isMovie ? `https://vidy.st/movie/${tmdbId}` : `https://vidy.st/tv/${tmdbId}/${s}/${e}`,
+        name: serverName,
+      };
+
+    case 9:
+      // Vidrock
+      return {
+        url: isMovie
+          ? `https://vidrock.net/embed/movie/${tmdbId}`
+          : `https://vidrock.net/embed/tv/${tmdbId}/${s}/${e}`,
+        name: serverName,
+      };
+
+    case 10:
+      // Vidvault
+      return {
+        url: isMovie
+          ? `https://vidvault.to/movie/${tmdbId}`
+          : `https://vidvault.to/tv/${tmdbId}/${s}/${e}`,
+        name: serverName,
       };
 
     case 11:
@@ -153,7 +152,7 @@ export function buildEmbedUrl(
         url: isMovie
           ? `https://vixsrc.to/movie/${tmdbId}`
           : `https://vixsrc.to/tv/${tmdbId}/${s}/${e}`,
-        name: "VixSrc",
+        name: serverName,
       };
 
     default:
@@ -161,14 +160,13 @@ export function buildEmbedUrl(
         url: isMovie
           ? `https://vidlink.pro/movie/${tmdbId}?primaryColor=e50914&sub.default=en`
           : `https://vidlink.pro/tv/${tmdbId}/${s}/${e}?primaryColor=e50914&sub.default=en`,
-        name: "VidLink",
+        name: serverName,
       };
   }
 }
 
 /**
  * Convenience helper returning raw embed URL string.
- * Supports both object and positional argument styles.
  */
 export function embedUrl(
   targetOrTmdbId: StreamTarget | number,
@@ -205,9 +203,6 @@ export async function resolveBackendStream(
   };
 }
 
-/**
- * Default initial playback resolver.
- */
 export async function findFirstPlayableStream(target: StreamTarget): Promise<StreamSource> {
   return resolveBackendStream(target, 0);
 }

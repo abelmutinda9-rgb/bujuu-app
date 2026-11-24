@@ -9,7 +9,7 @@ import {
   Play,
   Plus,
   Share2,
-  Sparkles,
+  Film,
   Star,
   Tv,
 } from "lucide-react";
@@ -68,7 +68,7 @@ function WatchPage() {
   // Stream state
   const [stream, setStream] = useState<ResolvedStream | null>(null);
   const [streamLoading, setStreamLoading] = useState(true);
-  const [serverIndex, setServerIndex] = useState<number>(-1); // -1 = Direct HLS, 0-11 = embed servers
+  const [serverIndex, setServerIndex] = useState<number>(0); // 0-11 = embed servers (Server 1 default)
   const [infoOpen, setInfoOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"episodes" | "foryou">("episodes");
@@ -131,10 +131,6 @@ function WatchPage() {
   // Handle stream failure / next server
   const handleNextServer = () => {
     setServerIndex((prev) => {
-      if (prev === -1) {
-        toast.info("Switching to backup fast stream server…");
-        return 0; // Fallback from direct HLS to Server 1
-      }
       const next = (prev + 1) % SERVER_COUNT;
       toast.info(`Switching to Server ${next + 1}…`);
       return next;
@@ -143,7 +139,7 @@ function WatchPage() {
 
   const handleSelectServer = (idx: number) => {
     setServerIndex(idx);
-    toast.info(idx === -1 ? "Connecting Direct HD…" : `Selected Server ${idx + 1}`);
+    toast.info(`Selected Server ${idx + 1}`);
   };
 
   // Play a specific episode
@@ -351,11 +347,21 @@ function WatchPage() {
                   onChange={(e) => handleSelectSeason(Number(e.target.value))}
                   className="appearance-none rounded-xl bg-zinc-900 pl-3 pr-8 py-1.5 text-xs font-bold text-white border border-zinc-800 focus:outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer"
                 >
-                  {Array.from({ length: media?.seasons || 1 }).map((_, i) => (
-                    <option key={i + 1} value={i + 1} className="bg-zinc-950 text-white">
-                      Season {String(i + 1).padStart(2, "0")}
-                    </option>
-                  ))}
+                  {media?.seasonsList && media.seasonsList.length > 0
+                    ? media.seasonsList.map((s) => (
+                        <option
+                          key={s.seasonNumber}
+                          value={s.seasonNumber}
+                          className="bg-zinc-950 text-white"
+                        >
+                          {s.name} ({s.episodeCount} eps)
+                        </option>
+                      ))
+                    : Array.from({ length: media?.seasons || 1 }).map((_, i) => (
+                        <option key={i + 1} value={i + 1} className="bg-zinc-950 text-white">
+                          Season {String(i + 1).padStart(2, "0")}
+                        </option>
+                      ))}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
               </div>
@@ -496,7 +502,7 @@ function WatchPage() {
           <section className="mt-8 border-t border-zinc-900 pt-6">
             <div className="flex items-center justify-between pb-3">
               <h2 className="text-sm font-bold text-white flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4 text-rose-500" />
+                <Film className="h-4 w-4 text-zinc-400" />
                 <span>More Like This</span>
               </h2>
               <span className="text-xs text-zinc-500">Curated for you</span>
