@@ -18,6 +18,10 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.widget.Toast;
 
+import android.content.pm.ActivityInfo;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 
@@ -34,6 +38,10 @@ import app.bujuu.tv.adblock.AdBlockEngine;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "BUJUU_MainActivity";
+    private View customView;
+    private WebChromeClient.CustomViewCallback customViewCallback;
+    private FrameLayout fullscreenContainer;
+
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -60,12 +68,60 @@ public class MainActivity extends BridgeActivity {
                 }
             });
 
-            // Suppress unwanted ad popup windows
+            // WebChromeClient with native HTML5 custom view fullscreen & ad-popup suppression
             webView.setWebChromeClient(new WebChromeClient() {
                 @Override
                 public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
                     Log.i(TAG, "Suppressed popup window creation (isUserGesture=" + isUserGesture + ")");
                     return false; // Do not open popup windows
+                }
+
+                @Override
+                public void onShowCustomView(View view, CustomViewCallback callback) {
+                    Log.i(TAG, "WebChromeClient: onShowCustomView triggered");
+                    if (customView != null) {
+                        callback.onCustomViewHidden();
+                        return;
+                    }
+
+                    customView = view;
+                    customViewCallback = callback;
+
+                    runOnUiThread(() -> {
+                        try {
+                            webView.setVisibility(View.GONE);
+
+                            if (fullscreenContainer == null) {
+                                fullscreenContainer = new FrameLayout(MainActivity.this);
+                                fullscreenContainer.setBackgroundColor(0xFF000000);
+                                ViewGroup decor = (ViewGroup) getWindow().getDecorView();
+                                decor.addView(fullscreenContainer, new ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                ));
+                            }
+
+                            fullscreenContainer.removeAllViews();
+                            fullscreenContainer.addView(view, new FrameLayout.LayoutParams(
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                    FrameLayout.LayoutParams.MATCH_PARENT
+                            ));
+                            fullscreenContainer.setVisibility(View.VISIBLE);
+
+                            // Lock to sensor landscape for full cinematic experience
+                            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+
+                            applyEdgeToEdgeImmersive();
+                        } catch (Exception e) {
+                            Log.e(TAG, "Error in onShowCustomView", e);
+                        }
+                    });
+                }
+
+                @Override
+                public void onHideCustomView() {
+                    Log.i(TAG, "WebChromeClient: onHideCustomView triggered");
+                    hideCustomFullscreenView();
                 }
             });
 
@@ -164,6 +220,19 @@ public class MainActivity extends BridgeActivity {
             int keyCode = event.getKeyCode();
             Log.d(TAG, "TV Remote KeyEvent: " + keyCode);
 
+            // Intercept Back / Escape while in custom fullscreen view
+            if (customView != null) {
+                if (keyCode == KeyEvent.KEYCODE_BACK 
+                    || keyCode == KeyEvent.KEYCODE_ESCAPE 
+                    || keyCode == KeyEvent.KEYCODE_BUTTON_B
+                    || keyCode == 111
+                    || keyCode == 4) {
+                    hideCustomFullscreenView();
+                    return true;
+                }
+            }
+
+
             // Handle Back / Exit / Escape keys on Android TV / Fire TV
             if (keyCode == KeyEvent.KEYCODE_BACK 
                 || keyCode == KeyEvent.KEYCODE_ESCAPE 
@@ -198,6 +267,35 @@ public class MainActivity extends BridgeActivity {
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    public void hideCustomFullscreenView() {
+        runOnUiThread(() -> {
+            try {
+                if (customView == null) return;
+
+                if (fullscreenContainer != null) {
+                    fullscreenContainer.removeView(customView);
+                    fullscreenContainer.setVisibility(View.GONE);
+                }
+
+                if (customViewCallback != null) {
+                    customViewCallback.onCustomViewHidden();
+                }
+
+                customView = null;
+                customViewCallback = null;
+
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    getBridge().getWebView().setVisibility(View.VISIBLE);
+                }
+
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                applyEdgeToEdgeImmersive();
+            } catch (Exception e) {
+                Log.e(TAG, "Error in hideCustomFullscreenView", e);
+            }
+        });
     }
 
     private void startNativeDownload(String url, String userAgent, String contentDisposition, String mimetype, String referer) {
@@ -264,6 +362,26 @@ public class MainActivity extends BridgeActivity {
 
     public class BujuuNativeInterface {
         @JavascriptInterface
+        public void setOrientationLandscape() {
+            runOnUiThread(() -> setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE));
+        }
+
+        @JavascriptInterface
+        public void setOrientationPortrait() {
+            runOnUiThread(() -> setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED));
+        }
+
+        @JavascriptInterface
+        public void exitFullscreen() {
+            hideCustomFullscreenView();
+        }
+
+        @JavascriptInterface
+        public boolean isCustomFullscreenActive() {
+            return customView != null;
+        }
+
+        @JavascriptInterface
         public String getDeviceId() {
             try {
                 String androidId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
@@ -289,12 +407,12 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public int getAppVersionCode() {
-            return 12; // v2.1
+            return 13; // v2.4
         }
 
         @JavascriptInterface
         public String getAppVersionName() {
-            return "2.1";
+            return "2.4";
         }
 
         @JavascriptInterface

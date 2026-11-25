@@ -58,7 +58,9 @@ export function BujuuPlayer({
 
     if (isNowFullscreen) {
       try {
-        if (typeof window !== "undefined" && (window.screen?.orientation as any)?.lock) {
+        if (typeof (window as any).BujuuNative?.setOrientationLandscape === "function") {
+          (window as any).BujuuNative.setOrientationLandscape();
+        } else if (typeof window !== "undefined" && (window.screen?.orientation as any)?.lock) {
           (window.screen.orientation as any).lock("landscape").catch(() => {});
         }
       } catch {
@@ -66,7 +68,9 @@ export function BujuuPlayer({
       }
     } else {
       try {
-        if (typeof window !== "undefined" && (window.screen?.orientation as any)?.unlock) {
+        if (typeof (window as any).BujuuNative?.setOrientationPortrait === "function") {
+          (window as any).BujuuNative.setOrientationPortrait();
+        } else if (typeof window !== "undefined" && (window.screen?.orientation as any)?.unlock) {
           (window.screen.orientation as any).unlock();
         }
       } catch {
@@ -84,45 +88,79 @@ export function BujuuPlayer({
     };
   }, [handleFullscreenChange]);
 
+  // Intercept back events when in fullscreen
+  useEffect(() => {
+    const handleBack = () => {
+      if (isFullscreen) {
+        setIsFullscreen(false);
+        try {
+          if (typeof (window as any).BujuuNative?.setOrientationPortrait === "function") {
+            (window as any).BujuuNative.setOrientationPortrait();
+          } else if ((window.screen?.orientation as any)?.unlock) {
+            (window.screen.orientation as any).unlock();
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener("bujuu-tv-back", handleBack);
+    return () => window.removeEventListener("bujuu-tv-back", handleBack);
+  }, [isFullscreen]);
+
   const toggleFullscreen = async () => {
     const el = containerRef.current;
     if (!el) return;
 
-    if (!document.fullscreenElement) {
+    if (!isFullscreen) {
       try {
         if (el.requestFullscreen) {
           await el.requestFullscreen();
         } else if ((el as any).webkitRequestFullscreen) {
           await (el as any).webkitRequestFullscreen();
         }
-        if ((window.screen?.orientation as any)?.lock) {
+      } catch {
+        // Continue with CSS edge-to-edge mode
+      }
+      setIsFullscreen(true);
+      try {
+        if (typeof (window as any).BujuuNative?.setOrientationLandscape === "function") {
+          (window as any).BujuuNative.setOrientationLandscape();
+        } else if ((window.screen?.orientation as any)?.lock) {
           await (window.screen.orientation as any).lock("landscape").catch(() => {});
         }
-      } catch {
-        toast.info("Entering fullscreen");
-      }
+      } catch {}
     } else {
       try {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        } else if ((document as any).webkitExitFullscreen) {
-          await (document as any).webkitExitFullscreen();
+        if (document.fullscreenElement) {
+          if (document.exitFullscreen) {
+            await document.exitFullscreen();
+          } else if ((document as any).webkitExitFullscreen) {
+            await (document as any).webkitExitFullscreen();
+          }
         }
-        if ((window.screen?.orientation as any)?.unlock) {
+      } catch {}
+      setIsFullscreen(false);
+      try {
+        if (typeof (window as any).BujuuNative?.setOrientationPortrait === "function") {
+          (window as any).BujuuNative.setOrientationPortrait();
+        } else if ((window.screen?.orientation as any)?.unlock) {
           (window.screen.orientation as any).unlock();
         }
-      } catch {
-        // Ignore
-      }
+      } catch {}
     }
   };
 
   const handleRotateLandscape = () => {
     try {
-      if ((window.screen?.orientation as any)?.lock) {
-        (window.screen.orientation as any).lock("landscape").catch(() => {
-          toast.info("Rotate your device to landscape");
-        });
+      if (typeof (window as any).BujuuNative?.setOrientationLandscape === "function") {
+        (window as any).BujuuNative.setOrientationLandscape();
+        toast.success("Locked to landscape");
+      } else if ((window.screen?.orientation as any)?.lock) {
+        (window.screen.orientation as any)
+          .lock("landscape")
+          .then(() => toast.success("Locked to landscape"))
+          .catch(() => {
+            toast.info("Rotate your device to landscape");
+          });
       } else {
         toast.info("Rotate your device to landscape");
       }
@@ -192,11 +230,56 @@ export function BujuuPlayer({
         </div>
       </div>
 
-      {/* 2. DOCKED 16:9 NATIVE IFRAME VIDEO FRAME */}
+      {/* 2. DOCKED 16:9 NATIVE IFRAME VIDEO FRAME (OR EDGE-TO-EDGE FULLSCREEN) */}
       <div
         ref={containerRef}
-        className="relative aspect-video w-full bg-black overflow-hidden border-b border-zinc-900"
+        className={
+          isFullscreen
+            ? "fixed inset-0 z-50 h-screen w-screen bg-black flex flex-col justify-center items-center overflow-hidden"
+            : "relative aspect-video w-full bg-black overflow-hidden border-b border-zinc-900"
+        }
       >
+        {/* Floating Top Controls Overlay in Fullscreen */}
+        {isFullscreen && (
+          <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between p-3 bg-gradient-to-b from-black/90 via-black/40 to-transparent">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-black/60 text-white hover:bg-black/90 backdrop-blur-md border border-white/10"
+                title="Exit Fullscreen"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div className="min-w-0">
+                <p className="truncate text-xs sm:text-sm font-bold text-white drop-shadow">{title}</p>
+                <p className="text-[11px] text-zinc-300 drop-shadow">
+                  {season && episode ? "S" + season + ":E" + episode + " • " : ""}{currentProviderName}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onNextServer}
+                className="flex items-center gap-1 rounded-full bg-rose-600 hover:bg-rose-500 px-3 py-1 text-xs font-bold text-white shadow-lg backdrop-blur-md transition"
+              >
+                <Zap className="h-3 w-3 fill-white" />
+                <span>Next Server</span>
+              </button>
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white hover:bg-black/90 backdrop-blur-md border border-white/10"
+                title="Exit Fullscreen"
+              >
+                <Minimize2 className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {stream ? (
           <iframe
             ref={iframeRef}

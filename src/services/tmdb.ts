@@ -1,6 +1,13 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { tmdbQuery } from "@/lib/tmdb.functions";
+import homeSeed from "@/data/home-seed.json";
+
+export const HOME_SEED = homeSeed as {
+  trending: MediaItem[];
+  topTen: MediaItem[];
+  nowPlaying: MediaItem[];
+};
 
 export const IMAGE_BASE = "https://image.tmdb.org/t/p";
 
@@ -138,6 +145,7 @@ export const trendingQuery = () =>
   queryOptions({
     queryKey: ["tmdb", "trending"],
     queryFn: () => list("/trending/all/week"),
+    initialData: HOME_SEED.trending,
     staleTime: 1000 * 60 * 10,
   });
 
@@ -145,6 +153,7 @@ export const topTenQuery = () =>
   queryOptions({
     queryKey: ["tmdb", "top10"],
     queryFn: async () => (await list("/movie/popular", { page: "1" }, "movie")).slice(0, 10),
+    initialData: HOME_SEED.topTen,
     staleTime: 1000 * 60 * 10,
   });
 
@@ -354,6 +363,7 @@ export const nowPlayingQuery = () =>
   queryOptions({
     queryKey: ["tmdb", "now-playing"],
     queryFn: () => list("/movie/now_playing", { page: "1" }, "movie"),
+    initialData: HOME_SEED.nowPlaying,
     staleTime: 1000 * 60 * 60,
   });
 

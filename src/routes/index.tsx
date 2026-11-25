@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { FeaturedCarousel } from "@/components/media/FeaturedCarousel";
@@ -52,10 +52,57 @@ function GenreRowSection({
   mediaType?: "movie" | "tv";
   onSelect: (item: MediaItem) => void;
 }) {
-  const query = useQuery(dynamicGenreQuery(genreId, mediaType));
-  if (!query.isLoading && (!query.data || query.data.length === 0)) return null;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || isVisible) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "400px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isVisible]);
+
+  const query = useQuery({
+    ...dynamicGenreQuery(genreId, mediaType),
+    enabled: isVisible,
+  });
+
   return (
-    <MediaRow title={title} items={query.data} isLoading={query.isLoading} onSelect={onSelect} />
+    <div ref={containerRef} className="min-h-[160px]">
+      {isVisible ? (
+        <MediaRow
+          title={title}
+          items={query.data}
+          isLoading={query.isLoading}
+          onSelect={onSelect}
+        />
+      ) : (
+        <div className="mt-8 px-4 lg:px-8">
+          <div className="h-5 w-40 rounded bg-zinc-900/60 animate-pulse mb-3" />
+          <div className="flex gap-2 overflow-hidden">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="aspect-[2/3] w-28 shrink-0 rounded-md bg-zinc-900/40 animate-pulse sm:w-36 lg:w-40"
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

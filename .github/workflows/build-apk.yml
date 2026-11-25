@@ -92,15 +92,15 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "BUJUU Android App v2.3"
+          name: "BUJUU Android App v2.4 (Instant Catalog & Native Fullscreen)"
           body: |
-            ### BUJUU Android Release v2.3
-            - Cinematic Obsidian Redesign: pure black surfaces, Bebas Neue display titles, Plus Jakarta Sans metadata, and refined media icons.
-            - Clean Native Player & 1-Tap Servers: responsive 16:9 frame, instant 1-tap switching across Server 1-12, and automatic landscape orientation lock on fullscreen.
-            - Dynamic TV Seasons: full multi-season and part indexing from TMDB (supporting shows like Lupin).
-            - Backend Remote Configuration: server providers and app settings dynamically synced via Supabase app_config.
-            - Instant Poster & Catalog Caching: zero-delay feed load with client caching and skeleton placeholders.
-            - Zero external Render dependency or AI template gradients.
+            ### BUJUU Android Release v2.4
+            - **Instant Catalog Bootstrap**: Pre-bundled offline catalog seed and viewport-based lazy loading eliminate startup lag completely.
+            - **Native Android Fullscreen**: Full WebChromeClient onShowCustomView / onHideCustomView integration with immersive edge-to-edge display and automatic sensor-landscape rotation.
+            - **In-App Edge-to-Edge Player**: Dedicated full-viewport CSS mode with floating controls, orientation lock, and remote back-key handling.
+            - **Cinematic Obsidian Redesign**: Pure black surfaces, Bebas Neue display typography, Plus Jakarta Sans, and refined media iconography.
+            - **Dynamic TV Seasons**: Full multi-season and episode indexing directly from TMDB (supporting shows like Lupin).
+            - **Backend Remote Configuration**: Server providers and settings synced dynamically via Supabase app_config.
           files: bujuu-app.apk
           prerelease: false
           make_latest: true
