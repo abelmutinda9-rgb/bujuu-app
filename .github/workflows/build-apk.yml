@@ -31,20 +31,6 @@ jobs:
           keytool -list -v -keystore android/app/debug.keystore -alias androiddebugkey -storepass android | grep -E "(SHA1|SHA256):"
           echo "=============================================================================="
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
-
-      - name: Build Brave adblock-rust Native Libraries
-        run: |
-          cd android/adblock-rust
-          mkdir -p ../app/src/main/jniLibs
-          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../app/src/main/jniLibs build --release
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
@@ -92,15 +78,15 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: "BUJUU Android App v2.4 (Instant Catalog & Native Fullscreen)"
+          name: "BUJUU Android App v2.5 (MovieBox Player & Offline Downloads)"
           body: |
-            ### BUJUU Android Release v2.4
-            - **Instant Catalog Bootstrap**: Pre-bundled offline catalog seed and viewport-based lazy loading eliminate startup lag completely.
-            - **Native Android Fullscreen**: Full WebChromeClient onShowCustomView / onHideCustomView integration with immersive edge-to-edge display and automatic sensor-landscape rotation.
-            - **In-App Edge-to-Edge Player**: Dedicated full-viewport CSS mode with floating controls, orientation lock, and remote back-key handling.
-            - **Cinematic Obsidian Redesign**: Pure black surfaces, Bebas Neue display typography, Plus Jakarta Sans, and refined media iconography.
-            - **Dynamic TV Seasons**: Full multi-season and episode indexing directly from TMDB (supporting shows like Lupin).
-            - **Backend Remote Configuration**: Server providers and settings synced dynamically via Supabase app_config.
+            ### BUJUU Android Release v2.5
+            - **MovieBox Player Experience**: Landscape auto-rotation, tap-to-lock, aspect ratio switcher (Fit, Fill, Stretch, 16:9), playback speed (0.75x-2x), Quality & Language flyout drawers, and PiP Auto Miniplayer.
+            - **In-App Offline Downloads**: MovieBox-inspired download modal with audio/season selectors, resolution pills, episode selection with size indicators, plus dedicated in-app Downloads library in Profile.
+            - **Zero Server UI & Synopsis Removed**: All visible server badges, buttons, and numbers removed; synopsis/overview blocks removed across hero banner, media details, and watch views.
+            - **Cloudflare Worker Stream Resolution**: Obfuscated runtime resolution via `https://water.bujuu.workers.dev/` with resilient fallback and zero exposed endpoints.
+            - **Nollywood Shelf**: Dedicated Nigerian cinema row and genre filter.
+            - **Clean Typography**: Plus Jakarta Sans with relaxed, human letter spacing.
           files: bujuu-app.apk
           prerelease: false
           make_latest: true

@@ -1,5 +1,4 @@
 import { ProfileProvider } from "@/context/profile-context";
-import { PinModal } from "@/components/PinModal";
 import { Capacitor } from "@capacitor/core";
 import { App as CapApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
@@ -21,7 +20,6 @@ import appCss from "../styles.css?url";
 import { Toaster } from "../components/ui/sonner";
 import { Splash } from "../components/Splash";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { initClientAdBlock } from "@/lib/adblock-client";
 import { rememberReferral } from "@/hooks/use-account";
 
 function NotFoundComponent() {
@@ -99,7 +97,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap",
       },
       {
         rel: "stylesheet",
@@ -134,10 +132,7 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
 
-  // Initialize Brave-grade client adblock & privacy protection
-  useEffect(() => {
-    initClientAdBlock();
-  }, []);
+
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -239,8 +234,7 @@ function RootComponent() {
         <Outlet />
         <Splash />
         <Toaster />
-        <PinModal />
-      </ProfileProvider>
+              </ProfileProvider>
     </QueryClientProvider>
   );
 }

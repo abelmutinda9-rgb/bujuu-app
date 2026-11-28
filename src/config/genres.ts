@@ -3,8 +3,9 @@ export interface GenreOption {
   name: string;
 }
 
-/** Standard TMDB genre mappings used across the app. */
+/** Standard TMDB genre mappings used across BUJUU. */
 export const GENRE_OPTIONS: GenreOption[] = [
+  { id: 9901, name: "Nollywood" },
   { id: 28, name: "Action" },
   { id: 35, name: "Comedy" },
   { id: 18, name: "Drama" },
@@ -18,5 +19,6 @@ export const GENRE_OPTIONS: GenreOption[] = [
 ];
 
 export function genreName(id: number) {
+  if (id === 9901) return "Nollywood";
   return GENRE_OPTIONS.find((g) => g.id === id)?.name ?? "Genre";
 }

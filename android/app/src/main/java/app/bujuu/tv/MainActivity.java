@@ -25,8 +25,6 @@ import android.widget.FrameLayout;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 
-import java.io.ByteArrayInputStream;
-
 import android.content.Intent;
 import android.os.Build;
 import android.provider.Settings;
@@ -34,7 +32,6 @@ import android.webkit.JavascriptInterface;
 import androidx.core.content.FileProvider;
 import java.io.File;
 import java.security.MessageDigest;
-import app.bujuu.tv.adblock.AdBlockEngine;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "BUJUU_MainActivity";
@@ -42,24 +39,17 @@ public class MainActivity extends BridgeActivity {
     private WebChromeClient.CustomViewCallback customViewCallback;
     private FrameLayout fullscreenContainer;
 
-
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         // Enable edge-to-edge immersive full-screen display
         applyEdgeToEdgeImmersive();
 
-
-        // Initialize Native Brave AdBlock Engine with official filter rules
-        AdBlockEngine.getInstance().initialize(getApplicationContext());
-
-        
         if (getBridge() != null && getBridge().getWebView() != null) {
             WebView webView = getBridge().getWebView();
             webView.addJavascriptInterface(new BujuuNativeInterface(), "BujuuNative");
 
-
-            // Set native download listener for Android WebView to capture Server 4 and provider downloads
+            // Native download listener for Android WebView
             webView.setDownloadListener(new DownloadListener() {
                 @Override
                 public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
@@ -68,12 +58,11 @@ public class MainActivity extends BridgeActivity {
                 }
             });
 
-            // WebChromeClient with native HTML5 custom view fullscreen & ad-popup suppression
+            // WebChromeClient with native HTML5 custom view fullscreen
             webView.setWebChromeClient(new WebChromeClient() {
                 @Override
                 public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
-                    Log.i(TAG, "Suppressed popup window creation (isUserGesture=" + isUserGesture + ")");
-                    return false; // Do not open popup windows
+                    return false; // Suppress popup windows
                 }
 
                 @Override
@@ -125,30 +114,8 @@ public class MainActivity extends BridgeActivity {
                 }
             });
 
-            // Intercept WebView network requests, redirects, and dom lifecycle to block ads natively
+            // Clean WebView Client
             getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
-                @Override
-                public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                    AdBlockEngine.AdBlockDecision decision = AdBlockEngine.getInstance().evaluateRequest(request);
-                    if (decision.isBlocked) {
-                        Log.d(TAG, "Suppressed ad resource: " + request.getUrl() + " [" + decision.mimeType + "]");
-                        return new WebResourceResponse(decision.mimeType, "UTF-8", new ByteArrayInputStream(decision.data));
-                    }
-                    return super.shouldInterceptRequest(view, request);
-                }
-
-                @Override
-                public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                    super.onPageStarted(view, url, favicon);
-                    AdBlockEngine.getInstance().injectEarlyScriptlets(view, url);
-                }
-
-                @Override
-                public void onPageFinished(WebView view, String url) {
-                    super.onPageFinished(view, url);
-                    AdBlockEngine.getInstance().injectCosmeticHiding(view, url);
-                }
-
                 @Override
                 public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                     if (request == null || request.getUrl() == null) {
@@ -159,9 +126,9 @@ public class MainActivity extends BridgeActivity {
                     String scheme = uri.getScheme();
                     String host = uri.getHost();
 
-                    // Block external non-web schemes triggered by ad networks (e.g. market://, intent://)
+                    // Block external non-web schemes (e.g. market://, intent://)
                     if (scheme != null && !scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https") && !scheme.equalsIgnoreCase("capacitor")) {
-                        Log.w(TAG, "Blocked external non-web scheme attempt from ad: " + url);
+                        Log.w(TAG, "Blocked external scheme: " + url);
                         return true;
                     }
 
@@ -174,15 +141,7 @@ public class MainActivity extends BridgeActivity {
                         return true;
                     }
 
-                    // Check for ad/popup redirects
-                    if (AdBlockEngine.getInstance().shouldBlock(url)) {
-                        Log.i(TAG, "Blocked unwanted ad/popup redirect navigation: " + url);
-                        return true; // Consume and suppress navigation
-                    }
-
-                    // STRICT TOP-LEVEL APP NAVIGATION LOCK:
-                    // If a subframe or script attempts to navigate the top-level window (isForMainFrame),
-                    // only allow navigations to trusted internal app endpoints or legitimate auth/payment flows.
+                    // Top-level app navigation guard
                     if (request.isForMainFrame()) {
                         if (host != null) {
                             String lowerHost = host.toLowerCase();
@@ -190,16 +149,12 @@ public class MainActivity extends BridgeActivity {
                                     || lowerHost.equals("127.0.0.1")
                                     || lowerHost.equals("app.bujuu.tv")
                                     || lowerHost.endsWith(".bujuu.tv")
-                                    || lowerHost.equals("accounts.google.com")
-                                    || lowerHost.endsWith(".google.com")
                                     || lowerHost.endsWith(".lovable.app")
-                                    || lowerHost.endsWith(".lovable.cloud")
-                                    || lowerHost.endsWith(".vercel.app")
-                                    || lowerHost.endsWith(".payhero.co.ke");
+                                    || lowerHost.endsWith(".lovable.cloud");
 
                             if (!isTrustedMainHost) {
-                                Log.w(TAG, "Blocked unauthorized top-level window hijack to: " + url);
-                                return true; // Suppress top-level hijack
+                                Log.w(TAG, "Prevented unauthorized main frame navigation to: " + url);
+                                return true;
                             }
                         }
                     }
@@ -211,14 +166,13 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * Enhanced TV Remote Control and D-pad Interception:
+     * TV Remote Control and D-pad Interception:
      * Forwards Android TV Back, OK/Center, and Directional buttons cleanly into the WebView.
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int keyCode = event.getKeyCode();
-            Log.d(TAG, "TV Remote KeyEvent: " + keyCode);
 
             // Intercept Back / Escape while in custom fullscreen view
             if (customView != null) {
@@ -232,21 +186,19 @@ public class MainActivity extends BridgeActivity {
                 }
             }
 
-
             // Handle Back / Exit / Escape keys on Android TV / Fire TV
             if (keyCode == KeyEvent.KEYCODE_BACK 
                 || keyCode == KeyEvent.KEYCODE_ESCAPE 
                 || keyCode == KeyEvent.KEYCODE_BUTTON_B
                 || keyCode == KeyEvent.KEYCODE_MEDIA_STOP
                 || keyCode == KeyEvent.KEYCODE_CLEAR
-                || keyCode == 111 // KEYCODE_ESCAPE
-                || keyCode == 4   // KEYCODE_BACK
-                || keyCode == 86  // KEYCODE_MEDIA_STOP
-                || keyCode == 28  // KEYCODE_CLEAR
+                || keyCode == 111
+                || keyCode == 4
+                || keyCode == 86
+                || keyCode == 28
             ) {
                 if (getBridge() != null && getBridge().getWebView() != null) {
                     WebView webView = getBridge().getWebView();
-                    // Dispatch a custom synthetic TV back event to the web app
                     String js = "window.dispatchEvent(new CustomEvent('bujuu-tv-back'));";
                     webView.evaluateJavascript(js, null);
                 }
@@ -311,37 +263,23 @@ public class MainActivity extends BridgeActivity {
                     filename = "bujuu-video.mkv";
                 }
 
-                // Set standard Android mobile User-Agent if none provided
                 String effectiveUa = userAgent;
                 if (effectiveUa == null || effectiveUa.isEmpty()) {
                     effectiveUa = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
                 }
                 request.addRequestHeader("User-Agent", effectiveUa);
 
-                // Pass provider Referer header to prevent HTTP 403 Forbidden on stream CDNs/Cloudflare workers
-                String effectiveReferer = referer;
-                if (effectiveReferer == null || effectiveReferer.isEmpty() || effectiveReferer.contains("localhost")) {
-                    if (url.contains("workers.dev") || url.contains("vidvault")) {
-                        effectiveReferer = "https://vidvault.to/";
-                    } else if (url.contains("vidfast")) {
-                        effectiveReferer = "https://vidfast.pro/";
-                    } else if (url.contains("vidy")) {
-                        effectiveReferer = "https://vidy.st/";
-                    }
-                }
-                if (effectiveReferer != null && !effectiveReferer.isEmpty()) {
-                    request.addRequestHeader("Referer", effectiveReferer);
-                    Log.i(TAG, "Added Referer header to native download: " + effectiveReferer);
+                if (referer != null && !referer.isEmpty() && !referer.contains("localhost")) {
+                    request.addRequestHeader("Referer", referer);
                 }
 
-                // Preserve session cookies if any
                 String cookies = CookieManager.getInstance().getCookie(url);
                 if (cookies != null && !cookies.isEmpty()) {
                     request.addRequestHeader("Cookie", cookies);
                 }
 
                 request.setTitle(filename);
-                request.setDescription("Downloading movie from BUJUU");
+                request.setDescription("Downloading title from BUJUU");
                 request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
                 request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
 
@@ -351,7 +289,7 @@ public class MainActivity extends BridgeActivity {
                     Toast.makeText(MainActivity.this, "Download started: " + filename, Toast.LENGTH_LONG).show();
                     Log.i(TAG, "Successfully enqueued native download: " + filename);
                 } else {
-                    Toast.makeText(MainActivity.this, "Android Download Manager unavailable", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "Download Manager unavailable", Toast.LENGTH_SHORT).show();
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Failed to start native download for " + url, e);
@@ -407,12 +345,12 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public int getAppVersionCode() {
-            return 13; // v2.4
+            return 14; // v2.5
         }
 
         @JavascriptInterface
         public String getAppVersionName() {
-            return "2.4";
+            return "2.5";
         }
 
         @JavascriptInterface
@@ -469,5 +407,4 @@ public class MainActivity extends BridgeActivity {
             applyEdgeToEdgeImmersive();
         }
     }
-
 }

@@ -214,7 +214,7 @@ export function matchPercent(voteAverage: number) {
   return Math.max(50, Math.min(99, Math.round(voteAverage * 10)));
 }
 
-export function yearOf(date: string | null) {
+export function yearOf(date: string | null | undefined) {
   return date ? date.slice(0, 4) : "—";
 }
 
@@ -344,8 +344,19 @@ export const dynamicGenreQuery = (genreId: number, mediaType: MediaType = "movie
   const page = getDailySeed();
   return queryOptions({
     queryKey: ["tmdb", "genre", genreId, mediaType, "daily-page", page],
-    queryFn: () =>
-      list(
+    queryFn: () => {
+      if (genreId === 9901) {
+        return list(
+          "/discover/" + mediaType,
+          {
+            with_origin_country: "NG",
+            sort_by: "popularity.desc",
+            page: String(page),
+          },
+          mediaType,
+        );
+      }
+      return list(
         "/discover/" + mediaType,
         {
           with_genres: String(genreId),
@@ -354,10 +365,27 @@ export const dynamicGenreQuery = (genreId: number, mediaType: MediaType = "movie
           "vote_count.gte": "100",
         },
         mediaType,
-      ),
+      );
+    },
     staleTime: 1000 * 60 * 30, // 30 minutes
   });
 };
+
+export const nollywoodQuery = () =>
+  queryOptions({
+    queryKey: ["tmdb", "nollywood"],
+    queryFn: () =>
+      list(
+        "/discover/movie",
+        {
+          with_origin_country: "NG",
+          sort_by: "popularity.desc",
+          page: "1",
+        },
+        "movie",
+      ),
+    staleTime: 1000 * 60 * 60,
+  });
 
 export const nowPlayingQuery = () =>
   queryOptions({

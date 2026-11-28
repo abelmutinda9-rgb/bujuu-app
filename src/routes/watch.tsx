@@ -1,31 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import {
-  ArrowLeft,
   Check,
   ChevronDown,
   Download,
-  Info,
+  Film,
   Play,
   Plus,
   Share2,
-  Film,
-  Star,
   Tv,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import { DownloadSheet } from "@/components/media/DownloadSheet";
 import { BujuuPlayer } from "@/components/player/BujuuPlayer";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useMyListToggle } from "@/hooks/use-library";
 import { saveContinueWatching } from "@/lib/history";
 import {
@@ -39,10 +30,9 @@ import {
   seasonQuery,
   stillUrl,
   yearOf,
-  type Episode,
   type MediaItem,
 } from "@/services/tmdb";
-import { resolveStreamSource, SERVER_COUNT, type ResolvedStream } from "@/services/stream-resolver";
+import { resolveStreamSource, type ResolvedStream } from "@/services/stream-resolver";
 
 const searchSchema = z.object({
   tmdbId: z.coerce.number(),
@@ -67,11 +57,7 @@ function WatchPage() {
 
   // Stream state
   const [stream, setStream] = useState<ResolvedStream | null>(null);
-  const [streamLoading, setStreamLoading] = useState(true);
-  const [serverIndex, setServerIndex] = useState<number>(0); // 0-11 = embed servers (Server 1 default)
-  const [infoOpen, setInfoOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"episodes" | "foryou">("episodes");
 
   // Queries
   const details = useQuery(detailsQuery(tmdbId, mediaType));
@@ -91,7 +77,7 @@ function WatchPage() {
     return {
       id: media.id,
       title: media.title,
-      overview: media.overview,
+      overview: "",
       posterPath: media.posterPath,
       backdropPath: media.backdropPath,
       releaseDate: media.releaseDate,
@@ -106,41 +92,26 @@ function WatchPage() {
   // Stream Resolution
   useEffect(() => {
     let cancelled = false;
-    setStreamLoading(true);
 
-    resolveStreamSource(
-      {
-        tmdbId,
-        mediaType,
-        season,
-        episode,
-      },
-      serverIndex,
-    ).then((resolved) => {
+    resolveStreamSource({
+      tmdbId,
+      mediaType,
+      season,
+      episode,
+    }).then((resolved) => {
       if (!cancelled) {
         setStream(resolved);
-        setStreamLoading(false);
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [tmdbId, mediaType, season, episode, serverIndex]);
+  }, [tmdbId, mediaType, season, episode]);
 
-  // Handle stream failure / next server
-  const handleNextServer = () => {
-    setServerIndex((prev) => {
-      const next = (prev + 1) % SERVER_COUNT;
-      toast.info(`Switching to Server ${next + 1}…`);
-      return next;
-    });
-  };
-
-  const handleSelectServer = (idx: number) => {
-    setServerIndex(idx);
-    toast.info(`Selected Server ${idx + 1}`);
-  };
+  // Current episode details
+  const currentEpisode = episodes.find((e) => e.episodeNumber === episode);
+  const currentEpisodeTitle = currentEpisode?.name;
 
   // Play a specific episode
   const handleSelectEpisode = (epNum: number) => {
@@ -182,35 +153,18 @@ function WatchPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Progress update callback
-  const handleProgress = (current: number, dur: number) => {
-    if (!media) return;
-    saveContinueWatching({
-      mediaId: tmdbId,
-      type: mediaType,
-      title,
-      posterPath: media.posterPath ?? null,
-      season: mediaType === "tv" ? season : undefined,
-      episode: mediaType === "tv" ? episode : undefined,
-      watchedSeconds: current,
-      durationSeconds: dur,
-    });
-  };
-
   // Share action
   const handleShare = async () => {
     const shareUrl = typeof window !== "undefined" ? window.location.href : "";
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `Watch ${title} on bujuu`,
-          text: `Streaming ${title} now on bujuu Cinema with zero ads!`,
+          title: `Watch ${title} on BUJUU`,
+          text: `Streaming ${title} now on BUJUU Cinema with zero ads!`,
           url: shareUrl,
         });
         return;
-      } catch {
-        // Clipboard sharing is not available in every browser context.
-      }
+      } catch {}
     }
     try {
       await navigator.clipboard.writeText(shareUrl);
@@ -220,64 +174,61 @@ function WatchPage() {
     }
   };
 
+  // Track continue watching
+  useEffect(() => {
+    if (!media) return;
+    saveContinueWatching({
+      mediaId: tmdbId,
+      type: mediaType,
+      title,
+      posterPath: (media?.posterPath ?? null) as string | null,
+      season: mediaType === "tv" ? season : undefined,
+      episode: mediaType === "tv" ? episode : undefined,
+      watchedSeconds: 60,
+      durationSeconds: 3600,
+    });
+  }, [tmdbId, mediaType, season, episode, title, media]);
+
   return (
-    <div className="min-h-screen bg-black text-white pb-20 selection:bg-rose-500/30">
-      {/* 1. DOCKED 16:9 VIDEO PLAYER AT TOP */}
+    <div className="min-h-screen bg-black text-white pb-24 selection:bg-rose-500/30">
+      {/* 1. DOCKED VIDEO PLAYER AT TOP (MovieBox Style) */}
       <div className="sticky top-0 z-40 w-full bg-black shadow-2xl">
         <div className="mx-auto max-w-5xl">
           <BujuuPlayer
             title={title}
             season={mediaType === "tv" ? season : undefined}
             episode={mediaType === "tv" ? episode : undefined}
+            episodeTitle={currentEpisodeTitle}
             stream={stream}
-            loading={streamLoading}
-            onNextServer={handleNextServer}
-            onSelectServer={handleSelectServer}
-            onProgress={handleProgress}
-            onBack={() => {
-              if (window.history.length > 1) window.history.back();
-              else void navigate({ to: "/" });
-            }}
+            hasPrevEpisode={episode > 1}
+            hasNextEpisode={episode < episodes.length}
+            onPrevEpisode={() => handleSelectEpisode(episode - 1)}
+            onNextEpisode={() => handleSelectEpisode(episode + 1)}
           />
         </div>
       </div>
 
-      {/* 2. MEDIA DETAILS & ACTIONS (Styled to match Screenshot 2) */}
+      {/* 2. MEDIA DETAILS & ACTIONS */}
       <main className="mx-auto max-w-5xl px-4 pt-4 sm:px-6">
-        {/* Title Header with Info trigger */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white drop-shadow">
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-normal text-white drop-shadow">
               {title}
             </h1>
-            {media?.tagline && (
-              <p className="mt-0.5 text-xs italic text-zinc-400 line-clamp-1">{media.tagline}</p>
-            )}
           </div>
-          <button
-            type="button"
-            onClick={() => setInfoOpen(true)}
-            className="flex items-center gap-1 rounded-full bg-zinc-900/80 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white border border-zinc-800 transition"
-          >
-            <span>Info</span>
-            <Info className="h-3.5 w-3.5 text-zinc-400" />
-          </button>
         </div>
 
-        {/* Metadata Badges Row */}
-        <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs font-medium text-zinc-400">
-          <span className="flex items-center gap-1 font-bold text-amber-400">
-            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-            {media?.voteAverage ? media.voteAverage.toFixed(1) : "8.2"}
+        {/* Badges metadata */}
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-zinc-400">
+          <span className="text-emerald-400">{matchPercent(media?.voteAverage ?? 8)}% Match</span>
+          <span className="text-zinc-600">•</span>
+          <span className="text-zinc-300">{yearOf(media?.releaseDate)}</span>
+          <span className="text-zinc-600">•</span>
+          <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300 border border-zinc-700">
+            {ageRating(media?.voteAverage ?? 8, tmdbId)}
           </span>
           <span className="text-zinc-600">•</span>
-          <span>{yearOf(media?.releaseDate ?? null)}</span>
-          <span className="text-zinc-600">•</span>
-          <span className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-300 border border-zinc-700/50">
-            {ageRating(media?.voteAverage ?? 7, tmdbId)}
-          </span>
-          <span className="text-zinc-600">•</span>
-          <span>
+          <span className="text-zinc-300">
             {mediaType === "tv"
               ? `${media?.seasons ?? 1} ${(media?.seasons ?? 1) === 1 ? "Season" : "Seasons"}`
               : formatRuntime(media?.runtimeMinutes ?? null) || "2h 10m"}
@@ -328,21 +279,21 @@ function WatchPage() {
           </Button>
         </div>
 
-        {/* 3. TV SERIES CONTROLS & EPISODE LIST (when mediaType is tv) */}
+        {/* 3. TV SERIES CONTROLS & EPISODE LIST */}
         {mediaType === "tv" ? (
           <section className="mt-6">
-            {/* Audio & Season Selection Bar */}
             <div className="flex items-center justify-between gap-3 pb-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-zinc-400">Audio:</span>
                 <span className="rounded-lg bg-zinc-900 px-2.5 py-1 text-xs font-bold text-zinc-200 border border-zinc-800">
-                  Original (English)
+                  Original
                 </span>
               </div>
 
               {/* Season dropdown selector */}
               <div className="relative">
                 <select
+                  aria-label="Select season"
                   value={season}
                   onChange={(e) => handleSelectSeason(Number(e.target.value))}
                   className="appearance-none rounded-xl bg-zinc-900 pl-3 pr-8 py-1.5 text-xs font-bold text-white border border-zinc-800 focus:outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer"
@@ -367,7 +318,7 @@ function WatchPage() {
               </div>
             </div>
 
-            {/* Quick Episode Number Carousel Pills (All, 01, 02, 03...) */}
+            {/* Quick Episode Number Carousel Pills */}
             {episodes.length > 0 && (
               <div className="flex items-center gap-2 overflow-x-auto py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {episodes.map((ep) => {
@@ -390,7 +341,7 @@ function WatchPage() {
               </div>
             )}
 
-            {/* Detailed Episode Cards */}
+            {/* Detailed Episode Cards (NO synopsis) */}
             <div className="mt-4 space-y-3">
               {episodes.map((ep) => {
                 const isCurrent = ep.episodeNumber === episode;
@@ -406,7 +357,6 @@ function WatchPage() {
                         : "bg-zinc-950 border-zinc-900 hover:bg-zinc-900 hover:border-zinc-800"
                     }`}
                   >
-                    {/* Thumbnail with duration */}
                     <div className="relative aspect-video w-28 sm:w-36 shrink-0 overflow-hidden rounded-xl bg-zinc-900">
                       {still ? (
                         <img
@@ -430,7 +380,6 @@ function WatchPage() {
                       )}
                     </div>
 
-                    {/* Episode details */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <h2
@@ -444,9 +393,6 @@ function WatchPage() {
                           </span>
                         )}
                       </div>
-                      <p className="mt-1 text-[11px] sm:text-xs text-zinc-400 line-clamp-2 leading-relaxed">
-                        {ep.overview || "No episode synopsis provided."}
-                      </p>
                     </div>
                   </div>
                 );
@@ -454,15 +400,8 @@ function WatchPage() {
             </div>
           </section>
         ) : (
-          /* 4. MOVIE DETAILS & CAST (when mediaType is movie) */
+          /* 4. MOVIE CAST (when mediaType is movie - NO synopsis) */
           <section className="mt-5 space-y-4">
-            <div>
-              <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Synopsis</h2>
-              <p className="mt-1 text-sm text-zinc-300 leading-relaxed">
-                {media?.overview || "No overview available."}
-              </p>
-            </div>
-
             {cast.length > 0 && (
               <div>
                 <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2.5">
@@ -497,7 +436,7 @@ function WatchPage() {
           </section>
         )}
 
-        {/* 5. RECOMMENDATIONS / "FOR YOU" SECTION (Matching Screenshot 2) */}
+        {/* 5. RECOMMENDATIONS / "MORE LIKE THIS" */}
         {recommendations.length > 0 && (
           <section className="mt-8 border-t border-zinc-900 pt-6">
             <div className="flex items-center justify-between pb-3">
@@ -518,7 +457,7 @@ function WatchPage() {
                     onClick={() => handleSelectRecommended(rec)}
                     className="group text-left outline-none"
                   >
-                    <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 border border-zinc-800/80 transition group-hover:scale-105 group-hover:border-rose-500/50">
+                    <div className="aspect-[2/3] w-full overflow-hidden rounded-xl bg-zinc-900 transition-transform duration-200 group-hover:scale-105 group-focus-visible:ring-2 group-focus-visible:ring-rose-500">
                       {poster ? (
                         <img
                           src={poster}
@@ -527,18 +466,14 @@ function WatchPage() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <div className="grid h-full w-full place-items-center p-2 text-center text-xs text-zinc-600">
+                        <div className="flex h-full w-full items-center justify-center p-2 text-center text-xs text-zinc-600">
                           {rec.title}
                         </div>
                       )}
-                      <div className="absolute top-1.5 right-1.5 rounded-md bg-black/80 px-1.5 py-0.5 text-[9px] font-bold text-amber-400">
-                        ★ {rec.voteAverage ? rec.voteAverage.toFixed(1) : "8.0"}
-                      </div>
                     </div>
                     <p className="mt-1.5 truncate text-xs font-semibold text-zinc-300 group-hover:text-white">
                       {rec.title}
                     </p>
-                    <p className="text-[10px] text-zinc-500">{yearOf(rec.releaseDate)}</p>
                   </button>
                 );
               })}
@@ -547,82 +482,31 @@ function WatchPage() {
         )}
       </main>
 
-      {/* Info Dialog */}
-      <Dialog open={infoOpen} onOpenChange={setInfoOpen}>
-        <DialogContent className="bg-zinc-950 text-white border-zinc-800 max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold">{title}</DialogTitle>
-            <DialogDescription className="text-xs text-zinc-400">
-              {media?.tagline || "Title information"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 pt-2 text-xs">
-            <p className="text-zinc-300 leading-relaxed">{media?.overview}</p>
-            {media?.genres && (
-              <div>
-                <span className="font-semibold text-zinc-400">Genres: </span>
-                <span className="text-white">{media.genres.join(", ")}</span>
-              </div>
-            )}
-            <div>
-              <span className="font-semibold text-zinc-400">Release Year: </span>
-              <span className="text-white">{yearOf(media?.releaseDate ?? null)}</span>
-            </div>
-            {mediaType === "movie" && media?.runtimeMinutes && (
-              <div>
-                <span className="font-semibold text-zinc-400">Runtime: </span>
-                <span className="text-white">{formatRuntime(media.runtimeMinutes)}</span>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Download Sheet */}
-      <Dialog open={downloadOpen} onOpenChange={setDownloadOpen}>
-        <DialogContent className="bg-zinc-950 text-white border-zinc-800 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <Download className="h-5 w-5 text-rose-500" />
-              <span>Offline Download</span>
-            </DialogTitle>
-            <DialogDescription className="text-xs text-zinc-400">
-              Save {title} to your device for offline playback.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 pt-2">
-            <div className="rounded-xl bg-zinc-900 p-3 border border-zinc-800">
-              <p className="text-xs font-semibold text-white">Full HD (1080p)</p>
-              <p className="text-[11px] text-zinc-400">High quality · Approx 1.4 GB</p>
-              <Button
-                size="sm"
-                className="mt-2 w-full bg-rose-600 hover:bg-rose-700 text-xs font-bold"
-                onClick={() => {
-                  setDownloadOpen(false);
-                  toast.info("Offline caching initialized in background.");
-                }}
-              >
-                Download 1080p
-              </Button>
-            </div>
-            <div className="rounded-xl bg-zinc-900 p-3 border border-zinc-800">
-              <p className="text-xs font-semibold text-white">Standard HD (720p)</p>
-              <p className="text-[11px] text-zinc-400">Data saver · Approx 750 MB</p>
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-2 w-full border-zinc-700 text-xs font-bold"
-                onClick={() => {
-                  setDownloadOpen(false);
-                  toast.info("Offline caching initialized in background.");
-                }}
-              >
-                Download 720p
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* MovieBox Download Sheet */}
+      <DownloadSheet
+        open={downloadOpen}
+        onOpenChange={setDownloadOpen}
+        title={title}
+        tmdbId={tmdbId}
+        mediaType={mediaType}
+        posterPath={media?.posterPath ?? undefined}
+        seasons={media?.seasonsList?.map((s) => ({
+          id: s.seasonNumber,
+          season_number: s.seasonNumber,
+          name: s.name,
+          episode_count: s.episodeCount,
+          poster_path: null,
+          overview: "",
+        }))}
+        currentSeason={season}
+        episodes={episodes.map((e) => ({
+          id: e.episodeNumber,
+          episode_number: e.episodeNumber,
+          name: e.name,
+          runtime: 45,
+        }))}
+        onSelectSeason={handleSelectSeason}
+      />
     </div>
   );
 }

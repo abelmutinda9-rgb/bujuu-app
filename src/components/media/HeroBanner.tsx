@@ -1,9 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Check, Info, Plus, Play } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
 
-import { useAccount } from "@/hooks/use-account";
 import { useMyListToggle } from "@/hooks/use-library";
 import type { MediaItem } from "@/services/tmdb";
 import { backdropUrl } from "@/services/tmdb";
@@ -11,7 +9,7 @@ import { backdropUrl } from "@/services/tmdb";
 const GENRES: Record<number, string> = {
   28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
   18: "Drama", 14: "Fantasy", 27: "Horror", 9648: "Mystery", 10749: "Romance",
-  878: "Sci-Fi", 53: "Thriller", 10765: "Sci-Fi",
+  878: "Sci-Fi", 53: "Thriller", 10765: "Sci-Fi", 9901: "Nollywood",
 };
 
 export function HeroBanner({
@@ -32,7 +30,6 @@ export function HeroBanner({
   const [failedImages, setFailedImages] = useState<Set<number>>(() => new Set());
   const currentItem = rotationItems[currentIndex] ?? item;
   const myList = useMyListToggle(currentItem);
-  const { isPremium, signedIn } = useAccount();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -43,7 +40,7 @@ export function HeroBanner({
     if (rotationItems.length < 2 || isPaused) return;
     const timer = window.setInterval(
       () => setCurrentIndex((index) => (index + 1) % rotationItems.length),
-      4000,
+      5000,
     );
     return () => window.clearInterval(timer);
   }, [rotationItems.length, isPaused]);
@@ -60,19 +57,11 @@ export function HeroBanner({
 
   if (!currentItem) return <div className="h-[70vh] w-full animate-pulse bg-card lg:h-[80vh]" />;
 
-  const background = currentItem.backdropPath
-    ? backdropUrl(currentItem.backdropPath, "w1280")
-    : undefined;
   const tags = currentItem.genreIds.map((id) => GENRES[id]).filter(Boolean).slice(0, 3);
   const year = currentItem.releaseDate ? new Date(currentItem.releaseDate).getFullYear() : undefined;
 
-  const handlePlayClick = (_e?: React.SyntheticEvent) => {
-    // Free direct access
-  };
-
   const handlePlayKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
-      handlePlayClick(e);
       void navigate({
         to: "/watch",
         search: { tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 },
@@ -110,42 +99,51 @@ export function HeroBanner({
                 loading={index === currentIndex ? "eager" : "lazy"}
                 decoding="async"
                 onError={() => setFailedImages((prev) => new Set(prev).add(media.id))}
-                className={`h-full w-full object-cover object-center transition-transform duration-[9000ms] ease-out motion-reduce:transform-none ${index === currentIndex ? "scale-105" : "scale-100"}`}
+                className={`h-full w-full object-cover object-center transition-transform duration-[10000ms] ease-out motion-reduce:transform-none ${index === currentIndex ? "scale-105" : "scale-100"}`}
               />
             ) : null}
           </div>
         );
       })}
 
-      <div className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-t from-black via-black/55 to-black/15" />
-      <div className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-r from-black/80 via-black/35 to-transparent" />
+      <div className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-t from-black via-black/50 to-black/15" />
+      <div className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-r from-black/85 via-black/40 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-28 bg-gradient-to-t from-black to-transparent" />
 
       <div className="relative z-30 flex h-full flex-col justify-end gap-3 px-4 pb-14 sm:px-6 sm:pb-16 lg:px-12 lg:pb-20">
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-rose-600 px-2.5 py-0.5 text-[10px] font-bold tracking-widest text-white sm:text-xs">FEATURED</span>
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/80">{currentItem.mediaType === "tv" ? "Series" : "Movie"}</span>
+          <span className="rounded-full bg-rose-600 px-3 py-0.5 text-[11px] font-bold tracking-wider text-white sm:text-xs">
+            FEATURED
+          </span>
+          <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-white/90">
+            {currentItem.mediaType === "tv" ? "Series" : "Movie"}
+          </span>
         </div>
-        <h1 className="max-w-2xl text-2xl font-black leading-tight text-white drop-shadow-md sm:text-4xl lg:text-6xl">{currentItem.title}</h1>
+
+        {/* Clean, spacious, readable typography without squished fonts or negative letter-spacing */}
+        <h1 className="max-w-3xl text-3xl font-extrabold tracking-normal text-white drop-shadow-md sm:text-5xl lg:text-6xl leading-[1.15]">
+          {currentItem.title}
+        </h1>
+
         {(year || tags.length > 0) && (
-          <p className="flex flex-wrap items-center gap-2 text-xs font-medium text-white/80 sm:text-sm">
+          <p className="flex flex-wrap items-center gap-2 text-xs font-semibold text-white/90 sm:text-sm">
             {year && <span>{year}</span>}
-            {year && tags.length > 0 && <span aria-hidden="true">•</span>}
+            {year && tags.length > 0 && <span aria-hidden="true" className="text-white/40">•</span>}
             {tags.length > 0 && <span>{tags.join(" • ")}</span>}
           </p>
         )}
-        {currentItem.overview && <p className="line-clamp-2 max-w-xl text-xs text-white/80 sm:line-clamp-3 sm:text-sm lg:text-base">{currentItem.overview}</p>}
+
+        {/* Synopsis completely removed per user instruction */}
 
         {/* TV Remote navigable actions */}
-        <div className="mt-2 flex flex-wrap items-center gap-3">
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <Link
             to="/watch"
             search={{ tmdbId: currentItem.id, mediaType: currentItem.mediaType, season: 1, episode: 1 }}
-            onClick={handlePlayClick}
             onKeyDown={handlePlayKeyDown}
             tabIndex={0}
             aria-label={`Play ${currentItem.title}`}
-            className="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-black text-black shadow-2xl transition-all duration-200 outline-none hover:scale-105 active:scale-95 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-rose-500 focus-visible:bg-rose-500 focus-visible:text-white"
+            className="inline-flex items-center gap-2 rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-black shadow-2xl transition-all duration-200 outline-none hover:scale-105 active:scale-95 focus-visible:scale-105 focus-visible:ring-4 focus-visible:ring-rose-500 focus-visible:bg-rose-500 focus-visible:text-white"
           >
             <Play className="h-5 w-5 fill-current" /> Play
           </Link>
@@ -154,9 +152,9 @@ export function HeroBanner({
               type="button"
               tabIndex={0}
               onClick={() => onSelect(currentItem)}
-              className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-6 py-3 text-sm font-bold text-white backdrop-blur-md transition-all duration-200 outline-none hover:bg-white/30 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-white"
+              className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur-md transition-all duration-200 outline-none hover:bg-white/25 focus-visible:scale-105 focus-visible:ring-4 focus-visible:ring-white"
             >
-              <Info className="h-5 w-5" /> More Info
+              <Info className="h-5 w-5" /> Details
             </button>
           )}
           <button
@@ -165,7 +163,7 @@ export function HeroBanner({
             onClick={myList.onToggle}
             disabled={myList.pending}
             aria-label={myList.inList ? "Remove from My List" : "Add to My List"}
-            className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-medium text-white backdrop-blur-md transition-all duration-200 outline-none hover:bg-white/20 focus-visible:scale-110 focus-visible:ring-4 focus-visible:ring-white"
+            className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3.5 text-sm font-medium text-white backdrop-blur-md transition-all duration-200 outline-none hover:bg-white/20 focus-visible:scale-105 focus-visible:ring-4 focus-visible:ring-white"
           >
             {myList.inList ? <Check className="h-5 w-5 text-rose-500" /> : <Plus className="h-5 w-5" />}
             <span>{myList.inList ? "In My List" : "My List"}</span>
@@ -173,7 +171,7 @@ export function HeroBanner({
         </div>
 
         {rotationItems.length > 1 && (
-          <div className="mt-2 flex items-center gap-2" role="group" aria-label="Featured title slides">
+          <div className="mt-3 flex items-center gap-2" role="group" aria-label="Featured title slides">
             {rotationItems.map((media, index) => (
               <button
                 key={`${media.mediaType}-${media.id}`}
@@ -182,7 +180,7 @@ export function HeroBanner({
                 onClick={() => setCurrentIndex(index)}
                 aria-label={`Show ${media.title}`}
                 aria-current={index === currentIndex ? "true" : undefined}
-                className={`h-2.5 rounded-full transition-all motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-white ${index === currentIndex ? "w-8 bg-rose-500" : "w-2.5 bg-white/50 hover:bg-white/80"}`}
+                className={`h-2 rounded-full transition-all motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-white ${index === currentIndex ? "w-8 bg-rose-500" : "w-2 bg-white/40 hover:bg-white/70"}`}
               />
             ))}
           </div>
