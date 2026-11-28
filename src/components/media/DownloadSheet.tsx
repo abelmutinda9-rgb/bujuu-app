@@ -1,4 +1,5 @@
-import { Check, ChevronDown, Download, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Check, ChevronDown, Download, Loader2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -6,6 +7,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { useOfflineDownloads } from "@/hooks/use-offline-downloads";
+import { seasonQuery } from "@/services/tmdb";
 
 export interface DownloadEpisode {
   id: number;
@@ -56,7 +58,13 @@ export function DownloadSheet({
   const isDesktop = useIsDesktop();
   const { addDownloads } = useOfflineDownloads();
   const [selectedQuality, setSelectedQuality] = useState("1080P");
+  const [selectedSeason, setSelectedSeason] = useState(currentSeason);
   const [selectedEpisodes, setSelectedEpisodes] = useState<Set<number>>(() => new Set([1]));
+
+  // Dynamically query episodes for the selected season if in TV mode
+  const seasonEpQuery = useQuery(
+    seasonQuery(tmdbId, selectedSeason, mediaType === "tv" && open),
+  );
 
   const effectiveEpisodes = useMemo(() => {
     if (mediaType === "movie") {
@@ -69,14 +77,27 @@ export function DownloadSheet({
         },
       ];
     }
-    if (episodes.length > 0) return episodes;
+
+    if (seasonEpQuery.data && seasonEpQuery.data.length > 0) {
+      return seasonEpQuery.data.map((e) => ({
+        id: e.episodeNumber,
+        episode_number: e.episodeNumber,
+        name: e.name,
+        runtime: 45,
+      }));
+    }
+
+    if (episodes.length > 0 && selectedSeason === currentSeason) {
+      return episodes;
+    }
+
     return Array.from({ length: 8 }, (_, i) => ({
       id: i + 1,
       episode_number: i + 1,
       name: `Episode ${i + 1}`,
       runtime: 45,
     }));
-  }, [mediaType, tmdbId, title, episodes]);
+  }, [mediaType, tmdbId, title, seasonEpQuery.data, episodes, selectedSeason, currentSeason]);
 
   const qualityFactor = QUALITIES.find((q) => q.label === selectedQuality)?.sizeFactor ?? 1.0;
 
@@ -102,6 +123,12 @@ export function DownloadSheet({
     }
   };
 
+  const handleSeasonChange = (sNum: number) => {
+    setSelectedSeason(sNum);
+    setSelectedEpisodes(new Set([1]));
+    onSelectSeason?.(sNum);
+  };
+
   const handleStartDownload = () => {
     if (selectedEpisodes.size === 0) {
       toast.error("Please select at least one item to download");
@@ -114,11 +141,11 @@ export function DownloadSheet({
         const approxSizeMb = Math.round((e.runtime ? e.runtime * 12 : 600) * qualityFactor);
         const sizeStr = approxSizeMb > 1024 ? `${(approxSizeMb / 1024).toFixed(1)} GB` : `${approxSizeMb} MB`;
         return {
-          id: `${tmdbId}-${mediaType === "tv" ? currentSeason : 0}-${e.episode_number}-${selectedQuality}`,
+          id: `${tmdbId}-${mediaType === "tv" ? selectedSeason : 0}-${e.episode_number}-${selectedQuality}`,
           tmdbId,
           mediaType,
           title,
-          season: mediaType === "tv" ? currentSeason : undefined,
+          season: mediaType === "tv" ? selectedSeason : undefined,
           episode: mediaType === "tv" ? e.episode_number : undefined,
           episodeTitle: e.name,
           quality: selectedQuality,
@@ -127,7 +154,7 @@ export function DownloadSheet({
         };
       });
 
-    addDownloads(itemsToSave);
+    void addDownloads(itemsToSave);
     onOpenChange(false);
   };
 
@@ -135,7 +162,10 @@ export function DownloadSheet({
     <div className="flex flex-col max-h-[85vh] bg-[#0c0d10] text-white">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-        <h2 className="text-xl font-bold tracking-normal">Download</h2>
+        <div>
+          <h2 className="text-xl font-bold tracking-normal">Download</h2>
+          <p className="text-xs text-zinc-400 mt-0.5">High-speed offline playback</p>
+        </div>
         <button
           type="button"
           onClick={() => onOpenChange(false)}
@@ -162,9 +192,9 @@ export function DownloadSheet({
             <div className="relative">
               <select
                 aria-label="Select season"
-                value={currentSeason}
-                onChange={(e) => onSelectSeason?.(Number(e.target.value))}
-                className="appearance-none rounded-xl bg-zinc-900 border border-zinc-800 pl-3.5 pr-8 py-2 text-xs font-semibold text-zinc-200 outline-none"
+                value={selectedSeason}
+                onChange={(e) => handleSeasonChange(Number(e.target.value))}
+                className="appearance-none rounded-xl bg-zinc-900 border border-zinc-800 pl-3.5 pr-8 py-2 text-xs font-semibold text-zinc-200 outline-none cursor-pointer"
               >
                 {seasons.map((s) => (
                   <option key={s.id} value={s.season_number} className="bg-zinc-950 text-white">
@@ -203,15 +233,25 @@ export function DownloadSheet({
 
         {/* Episodes Checklist */}
         <div className="space-y-2">
-          <p className="text-xs font-medium text-zinc-400">
-            {mediaType === "tv" ? "Episodes" : "Title"}
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-zinc-400">
+              {mediaType === "tv" ? `Episodes (Season ${selectedSeason})` : "Title"}
+            </p>
+            {seasonEpQuery.isFetching && (
+              <span className="flex items-center gap-1 text-[11px] text-zinc-400">
+                <Loader2 className="h-3 w-3 animate-spin text-cyan-400" /> Loading episodes...
+              </span>
+            )}
+          </div>
+
           <div className="space-y-1.5">
             {effectiveEpisodes.map((ep) => {
               const isSelected = selectedEpisodes.has(ep.episode_number);
               const approxSizeMb = Math.round((ep.runtime ? ep.runtime * 12 : 600) * qualityFactor);
               const sizeStr = approxSizeMb > 1024 ? `${(approxSizeMb / 1024).toFixed(1)} GB` : `${approxSizeMb} MB`;
-              const durationStr = ep.runtime ? `${Math.floor(ep.runtime / 60).toString().padStart(2, "0")}:${(ep.runtime % 60).toString().padStart(2, "0")}:00` : "00:45:00";
+              const durationStr = ep.runtime
+                ? `${Math.floor(ep.runtime / 60).toString().padStart(2, "0")}:${(ep.runtime % 60).toString().padStart(2, "0")}:00`
+                : "00:45:00";
 
               return (
                 <button

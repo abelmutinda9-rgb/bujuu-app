@@ -38,7 +38,7 @@ function ProfilePage() {
   });
   const [nameInput, setNameInput] = useState("");
   const history = useWatchHistory();
-  const { downloads, removeDownload, clearAllDownloads } = useOfflineDownloads();
+  const { downloads, removeDownload, clearAllDownloads, redownloadToDevice } = useOfflineDownloads();
 
   const activeProfile = profiles.find((p) => p.id === activeProfileId) ?? profiles[0] ?? { id: "owner", name: "You", avatarColor: "#e11d48" };
 
@@ -196,14 +196,32 @@ function ProfilePage() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      onClick={() => playDownloadedItem(item.tmdbId, item.mediaType, item.season, item.episode)}
-                      className="bg-white hover:bg-zinc-200 text-black font-bold h-8 px-3 rounded-lg flex items-center gap-1.5"
-                    >
-                      <Play className="h-3.5 w-3.5 fill-black" />
-                      Play
-                    </Button>
+                    {item.status === "downloading" ? (
+                      <span className="text-xs font-semibold text-cyan-400 bg-cyan-950/60 border border-cyan-800/60 px-2 py-1 rounded-md animate-pulse">
+                        {item.progress}%
+                      </span>
+                    ) : (
+                      <>
+                        <Button
+                          size="sm"
+                          onClick={() => playDownloadedItem(item.tmdbId, item.mediaType, item.season, item.episode)}
+                          className="bg-white hover:bg-zinc-200 text-black font-bold h-8 px-3 rounded-lg flex items-center gap-1.5"
+                        >
+                          <Play className="h-3.5 w-3.5 fill-black" />
+                          Play
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => redownloadToDevice(item)}
+                          className="h-8 border-zinc-700 bg-zinc-800/80 hover:bg-zinc-700 text-xs text-white font-semibold flex items-center gap-1.5"
+                          title="Save file directly to device"
+                        >
+                          <Download className="h-3.5 w-3.5 text-cyan-400" />
+                          <span className="hidden sm:inline">Save</span>
+                        </Button>
+                      </>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"

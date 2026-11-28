@@ -204,6 +204,7 @@ function WatchPage() {
             hasNextEpisode={episode < episodes.length}
             onPrevEpisode={() => handleSelectEpisode(episode - 1)}
             onNextEpisode={() => handleSelectEpisode(episode + 1)}
+            onDownload={() => setDownloadOpen(true)}
           />
         </div>
       </div>

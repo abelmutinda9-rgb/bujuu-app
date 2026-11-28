@@ -3,7 +3,7 @@ import {
   ArrowLeft,
   Cast,
   Check,
-  ChevronRight,
+  Download,
   HelpCircle,
   Lock,
   Maximize2,
@@ -15,7 +15,6 @@ import {
   Settings,
   Subtitles,
   Unlock,
-  Volume2,
 } from "lucide-react";
 import Hls from "hls.js";
 import React, { useEffect, useRef, useState } from "react";
@@ -34,6 +33,7 @@ interface BujuuPlayerProps {
   onNextEpisode?: () => void;
   hasPrevEpisode?: boolean;
   hasNextEpisode?: boolean;
+  onDownload?: () => void;
 }
 
 type AspectRatioMode = "fit" | "fill" | "stretch" | "16:9";
@@ -48,11 +48,11 @@ export function BujuuPlayer({
   onNextEpisode,
   hasPrevEpisode,
   hasNextEpisode,
+  onDownload,
 }: BujuuPlayerProps) {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Player state
   const [isPlaying, setIsPlaying] = useState(true);
@@ -95,7 +95,7 @@ export function BujuuPlayer({
 
   // Initialize HLS.js for direct cross-platform video streaming
   useEffect(() => {
-    if (!stream || stream.kind !== "hls" || !videoRef.current) return;
+    if (!stream?.streamUrl || !videoRef.current) return;
     const video = videoRef.current;
     let hls: Hls | null = null;
 
@@ -142,7 +142,7 @@ export function BujuuPlayer({
         hls.destroy();
       }
     };
-  }, [stream?.streamUrl, stream?.kind]);
+  }, [stream?.streamUrl]);
 
   // Sync playback speed
   useEffect(() => {
@@ -308,46 +308,37 @@ export function BujuuPlayer({
         isFullscreen ? "fixed inset-0 z-50 h-screen w-screen" : "aspect-video min-h-[220px] max-h-[85vh] rounded-2xl shadow-2xl",
       )}
     >
-      {/* Media Playback Viewport */}
-      {stream?.kind === "hls" ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          className={cn("h-full w-full", getAspectClass())}
-          onTimeUpdate={() => {
-            if (videoRef.current) {
-              setCurrentTime(videoRef.current.currentTime);
-              setDuration(videoRef.current.duration || 0);
-            }
-          }}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-        />
-      ) : (
-        <iframe
-          ref={iframeRef}
-          src={stream?.streamUrl || "about:blank"}
-          title={title}
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          className={cn("h-full w-full border-0", getAspectClass())}
-        />
+      {/* 100% Native Video Playback */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        className={cn("h-full w-full", getAspectClass())}
+        onTimeUpdate={() => {
+          if (videoRef.current) {
+            setCurrentTime(videoRef.current.currentTime);
+            setDuration(videoRef.current.duration || 0);
+          }
+        }}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+      />
+
+      {/* Stream Loading Status Indicator */}
+      {!stream && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/90 p-4 text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent mb-3" />
+          <p className="text-sm font-bold text-white">Connecting to Cloudflare Stream...</p>
+          <p className="text-xs text-zinc-400 mt-1">High-speed native video</p>
+        </div>
       )}
 
       {/* Touch Interaction Trigger */}
-      {stream?.kind === "hls" ? (
-        <div
-          onClick={handleVideoTap}
-          className="absolute inset-0 z-10 cursor-pointer"
-          aria-hidden="true"
-        />
-      ) : controlsVisible ? (
-        <div
-          onClick={handleVideoTap}
-          className="absolute inset-0 z-10 cursor-pointer"
-          aria-hidden="true"
-        />
-      ) : null}
+      <div
+        onClick={handleVideoTap}
+        className="absolute inset-0 z-10 cursor-pointer"
+        aria-hidden="true"
+      />
 
       {/* Tap to Lock Pill (Left Side) */}
       <div
@@ -414,6 +405,16 @@ export function BujuuPlayer({
             </div>
 
             <div className="flex items-center gap-2">
+              {onDownload && (
+                <button
+                  type="button"
+                  onClick={onDownload}
+                  className="rounded-full p-2 text-white/90 hover:bg-white/10 transition-colors"
+                  title="Download for Offline"
+                >
+                  <Download className="h-5 w-5" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => toast.info("Searching for Cast devices...", { duration: 1500 })}
