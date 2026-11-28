@@ -17,6 +17,7 @@ import {
   Unlock,
   Volume2,
 } from "lucide-react";
+import Hls from "hls.js";
 import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -91,6 +92,64 @@ export function BujuuPlayer({
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
   }, [activeDrawer, isLocked]);
+
+  // Initialize HLS.js for direct cross-platform video streaming
+  useEffect(() => {
+    if (!stream || stream.kind !== "hls" || !videoRef.current) return;
+    const video = videoRef.current;
+    let hls: Hls | null = null;
+
+    if (Hls.isSupported()) {
+      hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 90,
+      });
+
+      hls.loadSource(stream.streamUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (isPlaying) {
+          video.play().catch(() => {});
+        }
+      });
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls?.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls?.recoverMediaError();
+              break;
+            default:
+              hls?.destroy();
+              break;
+          }
+        }
+      });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = stream.streamUrl;
+      if (isPlaying) {
+        video.play().catch(() => {});
+      }
+    }
+
+    return () => {
+      if (hls) {
+        hls.destroy();
+      }
+    };
+  }, [stream?.streamUrl, stream?.kind]);
+
+  // Sync playback speed
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed]);
 
   // Fullscreen & Orientation Lock handling
   const toggleFullscreen = async () => {
@@ -253,7 +312,6 @@ export function BujuuPlayer({
       {stream?.kind === "hls" ? (
         <video
           ref={videoRef}
-          src={stream.streamUrl}
           autoPlay
           playsInline
           className={cn("h-full w-full", getAspectClass())}
@@ -277,11 +335,19 @@ export function BujuuPlayer({
       )}
 
       {/* Touch Interaction Trigger */}
-      <div
-        onClick={handleVideoTap}
-        className="absolute inset-0 z-10 cursor-pointer"
-        aria-hidden="true"
-      />
+      {stream?.kind === "hls" ? (
+        <div
+          onClick={handleVideoTap}
+          className="absolute inset-0 z-10 cursor-pointer"
+          aria-hidden="true"
+        />
+      ) : controlsVisible ? (
+        <div
+          onClick={handleVideoTap}
+          className="absolute inset-0 z-10 cursor-pointer"
+          aria-hidden="true"
+        />
+      ) : null}
 
       {/* Tap to Lock Pill (Left Side) */}
       <div

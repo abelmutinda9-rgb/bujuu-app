@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { buildEmbedUrl, SERVER_COUNT } from "@/services/embeds";
+import { buildEmbedUrl } from "@/services/embeds";
 import type { StreamTarget } from "@/services/remote-config";
 
 export type StreamKind = "hls" | "embed";
@@ -8,7 +8,6 @@ export interface ResolvedStream {
   kind: StreamKind;
   streamUrl: string;
   providerName: string;
-  serverIndex: number;
   qualities?: { label: string; url: string }[];
 }
 
@@ -50,19 +49,19 @@ async function getResolverBaseUrl(): Promise<string> {
 
 /**
  * Resolves the primary video stream.
- * Automatically tries the high-speed Worker resolver; if unavailable,
- * smoothly falls back to the resilient direct embed with zero server UI.
+ * Direct cloud-accelerated HLS stream routed through high-speed Worker proxy;
+ * automatically falls back to cinema direct player if unavailable.
+ * Zero server selection or server UI.
  */
 export async function resolveStreamSource(
   target: StreamTarget,
-  requestedIndex = 0,
 ): Promise<ResolvedStream> {
   const { tmdbId, mediaType, season = 1, episode = 1 } = target;
 
   try {
     const baseUrl = await getResolverBaseUrl();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2800);
+    const timeout = setTimeout(() => controller.abort(), 3500);
 
     const endpoint =
       mediaType === "movie"
@@ -81,31 +80,40 @@ export async function resolveStreamSource(
       const data = await res.json();
       if (data && Array.isArray(data.streams) && data.streams.length > 0) {
         const primary = data.streams[0];
-        const streamUrl = primary?.url || primary?.file || primary?.stream;
-        if (streamUrl && typeof streamUrl === "string") {
+        const rawStreamUrl = primary?.url || primary?.file || primary?.stream;
+        if (rawStreamUrl && typeof rawStreamUrl === "string") {
+          const headersParam =
+            primary?.headers && Object.keys(primary.headers).length > 0
+              ? `&headers=${encodeURIComponent(JSON.stringify(primary.headers))}`
+              : "";
+          const proxiedUrl = `${baseUrl}/api/proxy?url=${encodeURIComponent(rawStreamUrl)}${headersParam}`;
+
           return {
             kind: "hls",
-            streamUrl,
+            streamUrl: proxiedUrl,
             providerName: "BUJUU Direct",
-            serverIndex: 0,
-            qualities: data.streams.map((s: any) => ({
-              label: s.quality || s.label || "Auto",
-              url: s.url || s.file || s.stream,
-            })),
+            qualities: data.streams.map((s: any) => {
+              const qUrl = s.url || s.file || s.stream;
+              const qHeaders =
+                s.headers && Object.keys(s.headers).length > 0
+                  ? `&headers=${encodeURIComponent(JSON.stringify(s.headers))}`
+                  : headersParam;
+              return {
+                label: s.quality || s.label || "Auto",
+                url: `${baseUrl}/api/proxy?url=${encodeURIComponent(qUrl)}${qHeaders}`,
+              };
+            }),
           };
         }
       }
     }
   } catch {}
 
-  // Seamless fallback to resilient direct player
-  const embed = buildEmbedUrl(target, requestedIndex);
+  // Seamless fallback to resilient direct cinema player
+  const embed = buildEmbedUrl(target);
   return {
     kind: "embed",
     streamUrl: embed.url,
     providerName: "BUJUU Cinema",
-    serverIndex: requestedIndex,
   };
 }
-
-export { SERVER_COUNT };

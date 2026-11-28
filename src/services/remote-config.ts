@@ -16,18 +16,8 @@ export interface StreamTarget {
 }
 
 export const FALLBACK_PROVIDERS: StreamProvider[] = [
-  { id: "vidlink", name: "Server 1 (VidLink)", badge: "Fast", enabled: true, priority: 1 },
-  { id: "autoembed", name: "Server 2 (AutoEmbed)", badge: "HD", enabled: true, priority: 2 },
-  { id: "superembed", name: "Server 3 (SuperEmbed)", badge: "Multi", enabled: true, priority: 3 },
-  { id: "videasy", name: "Server 4 (Videasy)", badge: "Backup", enabled: true, priority: 4 },
-  { id: "2embed", name: "Server 5 (2Embed)", badge: "Classic", enabled: true, priority: 5 },
-  { id: "vidsrc_rip", name: "Server 6 (VidSrc RIP)", badge: "Alt", enabled: true, priority: 6 },
-  { id: "vidsrc_to", name: "Server 7 (VidSrc TO)", badge: "Alt", enabled: true, priority: 7 },
-  { id: "smashystream", name: "Server 8 (SmashyStream)", badge: "Alt", enabled: true, priority: 8 },
-  { id: "vidy", name: "Server 9 (Vidy)", badge: "Alt", enabled: true, priority: 9 },
-  { id: "vidrock", name: "Server 10 (Vidrock)", badge: "Alt", enabled: true, priority: 10 },
-  { id: "vidvault", name: "Server 11 (Vidvault)", badge: "Alt", enabled: true, priority: 11 },
-  { id: "vixsrc", name: "Server 12 (VixSrc)", badge: "Alt", enabled: true, priority: 12 },
+  { id: "bujuu_direct", name: "BUJUU Direct", badge: "Fast", enabled: true, priority: 1 },
+  { id: "bujuu_cinema", name: "BUJUU Cinema", badge: "HD", enabled: true, priority: 2 },
 ];
 
 let cachedProviders: StreamProvider[] = FALLBACK_PROVIDERS;
