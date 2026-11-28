@@ -10,8 +10,8 @@ export interface ResolvedStream {
   kind: "hls";
   streamUrl: string;
   providerName: string;
-  qualities?: StreamQuality[];
-  downloadUrl?: string;
+  qualities?: StreamQuality[] | undefined;
+  downloadUrl?: string | undefined;
 }
 
 export type { StreamTarget };
@@ -103,67 +103,98 @@ function processStreams(streams: any[], baseUrl: string): ResolvedStream | null 
 }
 
 /**
- * Resolves the primary video stream via Cloudflare Worker API only.
- * Completely removed any embed fallbacks: 100% native video streams.
+ * Pings all stream source endpoints simultaneously in parallel.
+ * Whichever endpoint provides a playable stream first wins immediately (<300ms).
+ * Background workers continue to resolve higher qualities and direct MP4 download links.
  */
 export async function resolveStreamSource(
   target: StreamTarget,
+  onUpdate?: (better: ResolvedStream) => void,
 ): Promise<ResolvedStream | null> {
   const { tmdbId, mediaType, season = 1, episode = 1 } = target;
 
   try {
     const baseUrl = await getResolverBaseUrl();
+    const isMovie = mediaType === "movie";
 
-    // 1. Tier 1: Fast racing endpoint (~200ms)
-    try {
-      const fastEndpoint =
-        mediaType === "movie"
+    const endpoints = [
+      {
+        name: "Edge Race",
+        url: isMovie
+          ? `${baseUrl}/api/stream/race/${tmdbId}`
+          : `${baseUrl}/api/stream/race/${tmdbId}/${season}/${episode}`,
+        timeout: 4500,
+      },
+      {
+        name: "Fast Stream",
+        url: isMovie
           ? `${baseUrl}/api/stream/fast/${tmdbId}`
-          : `${baseUrl}/api/stream/fast/${tmdbId}?s=${season}&e=${episode}`;
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2500);
-
-      const res = await fetch(fastEndpoint, {
-        signal: controller.signal,
-        headers: { Accept: "application/json" },
-      });
-      clearTimeout(timeout);
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.streams && Array.isArray(data.streams) && data.streams.length > 0) {
-          const resolved = processStreams(data.streams, baseUrl);
-          if (resolved) return resolved;
-        }
-      }
-    } catch {}
-
-    // 2. Tier 2: Cloudflare Worker full route (/api/stream/movie/:id or /api/stream/tv/:id/:s/:e)
-    try {
-      const fullEndpoint =
-        mediaType === "movie"
+          : `${baseUrl}/api/stream/fast/${tmdbId}?s=${season}&e=${episode}`,
+        timeout: 4000,
+      },
+      {
+        name: "Full Aggregator",
+        url: isMovie
           ? `${baseUrl}/api/stream/movie/${tmdbId}`
-          : `${baseUrl}/api/stream/tv/${tmdbId}/${season}/${episode}`;
+          : `${baseUrl}/api/stream/tv/${tmdbId}/${season}/${episode}`,
+        timeout: 7000,
+      },
+    ];
 
+    const fetchSingleEndpoint = async (ep: { name: string; url: string; timeout: number }): Promise<ResolvedStream> => {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4500);
-
-      const res = await fetch(fullEndpoint, {
-        signal: controller.signal,
-        headers: { Accept: "application/json" },
-      });
-      clearTimeout(timeout);
-
-      if (res.ok) {
+      const timer = setTimeout(() => controller.abort(), ep.timeout);
+      try {
+        const res = await fetch(ep.url, {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        if (data?.streams && Array.isArray(data.streams) && data.streams.length > 0) {
-          const resolved = processStreams(data.streams, baseUrl);
-          if (resolved) return resolved;
+        if (!data?.streams || !Array.isArray(data.streams) || data.streams.length === 0) {
+          throw new Error("No streams");
         }
+        const resolved = processStreams(data.streams, baseUrl);
+        if (!resolved) throw new Error("Invalid stream format");
+        return resolved;
+      } finally {
+        clearTimeout(timer);
       }
-    } catch {}
-  } catch {}
+    };
 
-  return null;
+    // Ping every source concurrently at the exact same moment
+    const racePromises = endpoints.map((ep) => fetchSingleEndpoint(ep));
+
+    let initialWinner: ResolvedStream | null = null;
+
+    if (onUpdate) {
+      endpoints.forEach((ep) => {
+        fetchSingleEndpoint(ep)
+          .then((result) => {
+            if (!initialWinner) return;
+            const currentWinner = initialWinner;
+            const currentCount = currentWinner.qualities?.length ?? 1;
+            const newCount = result.qualities?.length ?? 1;
+            if (newCount > currentCount || (!currentWinner.downloadUrl && result.downloadUrl)) {
+              const updated: ResolvedStream = {
+                kind: "hls",
+                streamUrl: currentWinner.streamUrl,
+                providerName: currentWinner.providerName,
+                qualities: result.qualities && result.qualities.length > 0 ? result.qualities : currentWinner.qualities,
+                downloadUrl: result.downloadUrl ?? currentWinner.downloadUrl,
+              };
+              initialWinner = updated;
+              onUpdate(updated);
+            }
+          })
+          .catch(() => {});
+      });
+    }
+
+    initialWinner = await Promise.any(racePromises);
+    return initialWinner;
+  } catch (err) {
+    console.warn("All parallel stream endpoints failed:", err);
+    return null;
+  }
 }

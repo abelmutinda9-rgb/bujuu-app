@@ -93,13 +93,20 @@ function WatchPage() {
   useEffect(() => {
     let cancelled = false;
 
-    resolveStreamSource({
-      tmdbId,
-      mediaType,
-      season,
-      episode,
-    }).then((resolved) => {
-      if (!cancelled) {
+    resolveStreamSource(
+      {
+        tmdbId,
+        mediaType,
+        season,
+        episode,
+      },
+      (better) => {
+        if (!cancelled && better) {
+          setStream(better);
+        }
+      },
+    ).then((resolved) => {
+      if (!cancelled && resolved) {
         setStream(resolved);
       }
     });
